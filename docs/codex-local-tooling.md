@@ -1,6 +1,6 @@
 # Codex Local Tooling
 
-Last reviewed: 2026-05-08
+Last reviewed: 2026-05-14
 
 ## Codex CLI
 
@@ -232,3 +232,34 @@ helper remains useful for direct URL batches when Python/Playwright is present;
 the Node harness is the preferred AI-facing workflow because it covers resume
 extraction, candidate collection, ranking, dedup, dry-run, and background tab
 opening without storing credentials.
+
+## GitHub Edge stable workflow
+
+Last reviewed: 2026-05-14 on Windows / Codex Desktop.
+
+Added project-local workflow assets:
+
+- `tools/github_edge_workflow.mjs`: Node helper that checks Edge stable process
+  status, local git remote state, and GitHub repository existence, then opens
+  GitHub create/delete/target pages in Microsoft Edge stable.
+- `tools/github-edge.cmd`: Windows launcher that finds bundled Codex Node first.
+- `tools/github-edge.ps1`: PowerShell launcher for environments that permit
+  script execution.
+
+Verified status on 2026-05-14:
+
+- Codex GitHub connector authenticated as `GgYu01`.
+- Git Credential Manager returned a GitHub OAuth credential for `GgYu01` with
+  repo/workflow access.
+- `GgYu01/work_jianli` returned 404 through authenticated GitHub API checks, so
+  no legacy remote deletion was needed.
+- `GgYu01/resume-job-board-agent` was created as a public repository with admin
+  permissions for the authenticated user.
+
+Operational boundary:
+
+- Use Microsoft Edge stable for GitHub browser workflows because the user's
+  network path depends on it; do not switch this workflow to Edge Beta unless
+  the user explicitly changes that requirement.
+- The helper opens pages in the user's Edge stable profile but does not read or
+  export browser cookies, passwords, or tokens.
