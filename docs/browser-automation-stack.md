@@ -30,7 +30,7 @@ Continue only when the required site reports `logged-in` or
 
 | Tool | Role |
 | --- | --- |
-| `tools/job-board.cmd` / `tools/job_board_harness.mjs` | Primary job-board workflow. Uses the durable Edge Beta profile and opens detail pages as same-browser tabs. |
+| `tools/job-board.cmd` / `tools/job_board_harness.mjs` | Primary job-board workflow. Uses the durable Edge Beta profile, collects/ranks jobs, summarizes contact or interview follow-ups, and opens detail pages as same-browser tabs. |
 | `chrome-devtools` MCP | Generic page inspection/audits. Current callable instance is not the Edge Beta recruitment profile. |
 | `playwright-mcp` | Generic managed browser automation. Current callable instance is not the Edge Beta recruitment profile. |
 | `playwriter` | Extension-based interactive control for user browser tabs when enabled. Useful for manual interaction loops, not required for batch opening. |
@@ -42,3 +42,8 @@ Continue only when the required site reports `logged-in` or
 For BOSS/Liepin job screening, future agents should use the project harness
 first. Use extension/MCP browser tools only for inspection, captcha/user-assisted
 interaction, or one-off browser tasks that the harness does not cover.
+
+`open` should leave the browser on detail pages. It rejects BOSS/Liepin
+search/list URLs by default and closes BOSS `/web/geek/jobs` plus Liepin
+`/zhaopin/` tabs after successful live batches. Use
+`.\tools\job-board.cmd cleanup-pages` for manual cleanup when needed.

@@ -12,6 +12,7 @@ const DEFAULT_REPO = "resume-job-board-agent";
 const DEFAULT_LEGACY_REPO = "work_jianli";
 const DEFAULT_DESCRIPTION =
   "Resume-driven job-board browser agent workflow for Codex, BOSS Zhipin, and Liepin.";
+const DEFAULT_GITHUB_PROXY = process.env.GITHUB_SOCKS_PROXY || "socks5://127.0.0.1:12334";
 
 const EDGE_STABLE_CANDIDATES = [
   process.env.EDGE_STABLE_EXE,
@@ -110,12 +111,38 @@ function edgeSummary() {
   };
 }
 
-function runGit(args) {
-  const result = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", windowsHide: true });
+function githubProxy(args) {
+  return option(args, "proxy", DEFAULT_GITHUB_PROXY);
+}
+
+function githubProxyEnv(proxy) {
+  const env = { ...process.env };
+  for (const key of ["ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "all_proxy", "https_proxy", "http_proxy"]) {
+    delete env[key];
+  }
+  return env;
+}
+
+function githubProxyGitArgs(proxy) {
+  return ["-c", `http.https://github.com/.proxy=${proxy}`];
+}
+
+function runGit(args, options = {}) {
+  const proxy = options.githubProxy || null;
+  const result = spawnSync("git", proxy ? [...githubProxyGitArgs(proxy), ...args] : args, {
+    cwd: ROOT,
+    encoding: "utf8",
+    windowsHide: true,
+    env: proxy ? githubProxyEnv(proxy) : process.env,
+    stdio: options.stdio || "pipe",
+    timeout: options.timeoutMs,
+  });
   return {
     ok: result.status === 0,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim(),
+    status: result.status ?? 1,
+    stdout: result.stdout ? result.stdout.trim() : "",
+    stderr: result.stderr ? result.stderr.trim() : "",
+    error: result.error?.message || null,
   };
 }
 
@@ -123,25 +150,22 @@ function gitState() {
   return {
     branch: runGit(["branch", "--show-current"]).stdout || null,
     remote_origin: runGit(["config", "--get", "remote.origin.url"]).stdout || null,
+    github_proxy_config: runGit(["config", "--local", "--get", "http.https://github.com/.proxy"]).stdout || null,
     head: runGit(["log", "--oneline", "-1"]).stdout || null,
   };
 }
 
-async function repoStatus(owner, repo) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-      method: "HEAD",
-      signal: controller.signal,
-      headers: { "User-Agent": "codex-local-github-edge-helper" },
-    });
-    return { full_name: `${owner}/${repo}`, http_status: response.status, exists: response.status === 200 };
-  } catch (error) {
-    return { full_name: `${owner}/${repo}`, error: error.message, exists: null };
-  } finally {
-    clearTimeout(timer);
-  }
+function repoStatus(owner, repo, args) {
+  const proxy = githubProxy(args);
+  const remote = `https://github.com/${owner}/${repo}.git`;
+  const result = runGit(["ls-remote", remote], { githubProxy: proxy, timeoutMs: 12000 });
+  return {
+    full_name: `${owner}/${repo}`,
+    remote,
+    exists: result.ok,
+    proxy,
+    error: result.ok ? null : result.error || result.stderr || result.stdout || `git exited ${result.status}`,
+  };
 }
 
 function createRepoUrl(args) {
@@ -193,11 +217,14 @@ async function cmdStatus(args) {
   const owner = option(args, "owner", DEFAULT_OWNER);
   const repo = option(args, "repo", DEFAULT_REPO);
   const legacyRepo = option(args, "legacy-repo", DEFAULT_LEGACY_REPO);
-  const [target, legacy] = await Promise.all([
-    repoStatus(owner, repo),
-    repoStatus(owner, legacyRepo),
-  ]);
+  const target = repoStatus(owner, repo, args);
+  const legacy = repoStatus(owner, legacyRepo, args);
   console.log(JSON.stringify({
+    github_proxy: {
+      default: DEFAULT_GITHUB_PROXY,
+      active: githubProxy(args),
+      env_override: Boolean(process.env.GITHUB_SOCKS_PROXY),
+    },
     edge: {
       stable_exe: findEdgeStableExe(),
       ...edgeSummary(),
@@ -214,6 +241,31 @@ function cmdOpenCreate(args) {
   console.log(JSON.stringify(openInEdgeStable(createRepoUrl(args), {
     allowLaunch: !boolOption(args, "require-running"),
   }), null, 2));
+}
+
+function cmdConfigureProxy(args) {
+  const proxy = githubProxy(args);
+  const result = runGit(["config", "--local", "http.https://github.com/.proxy", proxy]);
+  if (!result.ok) throw new Error(result.stderr || "Failed to configure local GitHub proxy.");
+  console.log(JSON.stringify({
+    configured: true,
+    scope: "local",
+    key: "http.https://github.com/.proxy",
+    proxy,
+  }, null, 2));
+}
+
+function cmdPush(args) {
+  const proxy = githubProxy(args);
+  const remote = option(args, "remote", "origin");
+  const branch = option(args, "branch", runGit(["branch", "--show-current"]).stdout || "main");
+  const gitArgs = ["push"];
+  if (boolOption(args, "set-upstream")) gitArgs.push("-u");
+  gitArgs.push(remote, branch);
+  const result = runGit(gitArgs, { githubProxy: proxy, stdio: "inherit" });
+  if (!result.ok) {
+    throw new Error(`git ${gitArgs.join(" ")} failed with exit code ${result.status}`);
+  }
 }
 
 function cmdOpenTarget(args) {
@@ -240,19 +292,22 @@ Default target:
 
 Commands:
   .\\tools\\github-edge.cmd status
+  .\\tools\\github-edge.cmd configure-proxy
   .\\tools\\github-edge.cmd open-create
   .\\tools\\github-edge.cmd open-delete-legacy
   .\\tools\\github-edge.cmd open-target
+  .\\tools\\github-edge.cmd push --branch main
 
 Recommended flow:
-  1. Run status and confirm Edge stable is running.
+  1. Run status and confirm Edge stable is running. GitHub checks use socks5://127.0.0.1:12334 by default.
   2. Run open-create. Complete GitHub's create-repository form in Edge if it is not fully prefilled.
   3. If GgYu01/work_jianli exists, run open-delete-legacy and confirm deletion manually in GitHub.
   4. After the target repo exists, run:
-       git push -u origin main
+       .\\tools\\github-edge.cmd push --branch main
 
 Boundaries:
   - This helper does not read or export cookies, passwords, tokens, or browser profile files.
+  - GitHub git operations use the local socks5 proxy by default. Override with --proxy or GITHUB_SOCKS_PROXY.
   - Repository deletion remains a manual GitHub confirmation unless a separate authenticated GitHub API token is explicitly provided by the user.
   - If a future agent needs DOM-level automation, enable the Playwriter/PageAgent extension on the Edge stable GitHub tab.
 `);
@@ -263,6 +318,8 @@ function cmdHelp() {
 
 Commands:
   status                 Check Edge stable process, git remote, and target repo existence
+  configure-proxy        Persist the GitHub HTTPS proxy in this repository's local git config
+  push                   Run git push through the GitHub socks proxy
   open-create            Open GitHub's new-repository page in Edge stable
   open-delete-legacy     Open legacy repository Settings/Danger Zone in Edge stable
   open-target            Open the target repository URL in Edge stable
@@ -274,6 +331,10 @@ Options:
   --legacy-repo work_jianli
   --description "..."
   --visibility public
+  --proxy socks5://127.0.0.1:12334
+  --remote origin
+  --branch main
+  --set-upstream         For push: pass -u to git push
   --require-running      Refuse to launch Edge if Edge stable is not already running
 `);
 }
@@ -284,6 +345,12 @@ async function main() {
   switch (command) {
     case "status":
       await cmdStatus(args);
+      break;
+    case "configure-proxy":
+      cmdConfigureProxy(args);
+      break;
+    case "push":
+      cmdPush(args);
       break;
     case "open-create":
       cmdOpenCreate(args);

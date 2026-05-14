@@ -209,6 +209,53 @@ Observed status:
 - Verified on 2026-05-14: `.\tools\job-board.cmd auth --site both --open-login`
   reported BOSS and Liepin as logged in through the Edge CDP profile.
 
+### 2026-05-14 communication follow-up summary update
+
+- `tools/job_board_harness.mjs` now has `summarize-contacts`.
+- Live mode attaches to the same Edge Beta CDP profile and inspects current
+  BOSS/Liepin chat or message pages after the auth gate.
+- Offline mode accepts a JSON/manual notes input for tests or user-provided chat
+  summaries.
+- Output `.json` and `.md` artifacts classify `contact-exchanged`,
+  `interview-likely`, and `deep-followup` records. Evidence snippets redact
+  WeChat IDs, phone numbers, and email addresses by default.
+- Verified command:
+
+```powershell
+& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" --test .\tools\job_board_harness.test.mjs
+```
+
+- Live Edge Beta check on 2026-05-14: `.\tools\job-board.cmd start-browser`
+  reported `Edg/148.0.3967.54` on CDP port `9222`; `.\tools\job-board.cmd auth
+  --site both --open-login` reported BOSS and Liepin as logged in; `.\tools\job-board.cmd
+  summarize-contacts --site both --max 50 --out .tmp\job_board_harness\live_contact_followups_20260514_final.json`
+  produced 1 selected contact follow-up from 1 BOSS chat page, with no warnings.
+
+### 2026-05-14 detail-page open hardening
+
+- `tools/job_board_harness.mjs open` now filters out BOSS/Liepin search/list
+  URLs by default. BOSS `/web/geek/jobs` and Liepin `/zhaopin/` records are
+  returned as `non-detail-job-board-url` rejections unless
+  `--allow-non-detail` is intentional.
+- BOSS detail canonicalization preserves `securityId`, `lid`, and `ka` query
+  parameters because BOSS can use them to render an independent detail page
+  rather than a generic search/list experience.
+- For live detail-opening batches, the auth gate uses the first selected detail
+  page as its probe. This avoids leaving a fresh BOSS `/web/geek/jobs` tab as
+  the final user-facing page during normal `open` runs.
+- After successful live `open` batches, the harness closes BOSS `/web/geek/jobs`
+  and Liepin `/zhaopin/` tabs through CDP by default. `cleanup-pages` is
+  available for manual cleanup; `--keep-search-pages` is the explicit opt-out.
+- Verified command:
+
+```powershell
+node --test .\tools\job_board_harness.test.mjs
+```
+
+- Live Edge Beta checks on 2026-05-14 opened one BOSS detail URL and one Liepin
+  detail URL through CDP port `9222`; `/json/list` showed
+  `GENERIC_COUNT=0` for `zhipin.com/web/geek/jobs` and `liepin.com/zhaopin`.
+
 ## Browser automation stack audit
 
 Last reviewed: 2026-05-14 on Windows / Codex Desktop.
@@ -240,8 +287,9 @@ Last reviewed: 2026-05-14 on Windows / Codex Desktop.
 Added project-local workflow assets:
 
 - `tools/github_edge_workflow.mjs`: Node helper that checks Edge stable process
-  status, local git remote state, and GitHub repository existence, then opens
-  GitHub create/delete/target pages in Microsoft Edge stable.
+  status, local git remote state, and GitHub repository existence through the
+  local GitHub socks proxy, then opens GitHub create/delete/target pages in
+  Microsoft Edge stable. It can also run `git push` through the same proxy.
 - `tools/github-edge.cmd`: Windows launcher that finds bundled Codex Node first.
 - `tools/github-edge.ps1`: PowerShell launcher for environments that permit
   script execution.
@@ -261,5 +309,8 @@ Operational boundary:
 - Use Microsoft Edge stable for GitHub browser workflows because the user's
   network path depends on it; do not switch this workflow to Edge Beta unless
   the user explicitly changes that requirement.
+- GitHub git operations use `socks5://127.0.0.1:12334` by default through
+  `tools/github-edge.cmd push`; override with `--proxy` or
+  `GITHUB_SOCKS_PROXY` only when the local network setup changes.
 - The helper opens pages in the user's Edge stable profile but does not read or
   export browser cookies, passwords, or tokens.
