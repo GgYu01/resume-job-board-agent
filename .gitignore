@@ -1,0 +1,59 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+secrets/
+.secrets/
+*.secret
+*.token
+*.credentials
+credentials.json
+token.json
+service-account*.json
+
+# AI workspace runtime noise
+tmp/
+.tmp/
+.cache/
+.cache_agentscope/
+.playwright-mcp/
+.codex/
+.gstack/
+.agents/cache/
+agent_runs/
+run_logs/
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Python/tooling cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Build/generated archives
+dist/
+build/
+out/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
