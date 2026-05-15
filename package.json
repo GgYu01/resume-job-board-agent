@@ -1,0 +1,11 @@
+{
+  "name": "resume-job-board-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "doctor": "node tools/job_board_harness.mjs doctor",
+    "test": "node --test tools/job_board_harness.test.mjs tools/github_edge_workflow.test.mjs test/unit/*.test.mjs",
+    "test:unit": "node --test test/unit/*.test.mjs"
+  }
+}

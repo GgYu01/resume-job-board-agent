@@ -314,3 +314,45 @@ Operational boundary:
   `GITHUB_SOCKS_PROXY` only when the local network setup changes.
 - The helper opens pages in the user's Edge stable profile but does not read or
   export browser cookies, passwords, or tokens.
+
+## Job-board architecture refactor checkpoint
+
+Last reviewed: 2026-05-15 on Windows / Codex Desktop.
+
+Current conclusion:
+
+- `tools/job_board_harness.mjs` is now compatibility-only and forwards to
+  `src/cli/runtime.mjs`.
+- The old monolithic harness is preserved by the Git branch
+  `codex/legacy-harness-monolith`; main should continue on the new `src/cli`
+  architecture.
+- Keep moving deterministic logic from `src/cli/runtime.mjs` into focused
+  `src/` modules as command implementations mature.
+- `src/agent/review-runner.mjs` owns the structured agent-review contract and
+  selection validation. The harness consumes that module instead of inventing
+  review records inline.
+- `src/agent/prompt-contracts.mjs` owns formal Codex review request/response
+  validation. Use `agent-review --prepare` before a human/Codex semantic review
+  and `agent-review --review-output` to validate that review.
+- `src/extract/collect-links.mjs`, `src/sites/boss.mjs`, and
+  `src/sites/liepin.mjs`, `src/sites/job51.mjs`, and `src/sites/registry.mjs`
+  are the site-adapter/fixture extraction pieces.
+- `src/extract/extract-detail.mjs` and `extract-details` add the optional detail
+  summary pass for Phase 3.
+- `src/config/profile-patch.mjs`, `feedback --suggest-profile-patch`,
+  `profile apply-patch`, and `profile rollback` cover Phase 4 feedback learning
+  with config history.
+- `src/config/browser-config.mjs` and `configs/browser.yaml` cover the Phase 5
+  browser path resolution order.
+- `test-fixture` covers fixture dry-runs without live site access. Captcha or
+  verification fixtures exit with code `3`.
+- `feedback` appends regression metrics to
+  `.tmp/job_board_harness/regression_metrics.jsonl`.
+- Keep the project-local skills under `skills/`: `job-board-page-opener`,
+  `job-selection-review`, `job-keyword-profile-review`, and
+  `job-feedback-update`. Update these skills when CLI commands change. No MCP
+  server should be added yet; the CDP harness is enough for this phase.
+- `package.json` now provides `npm test`, `npm run test:unit`, and
+  `npm run doctor` as optional shortcuts when npm is available. In this Codex
+  Desktop runtime, direct `node --test ...` and
+  `node tools/job_board_harness.mjs doctor` are the verified baseline.

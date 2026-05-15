@@ -1,6 +1,6 @@
 ---
 name: job-board-page-opener
-description: Use when screening BOSS Zhipin or Liepin jobs from the user's logged-in Edge Beta CDP browser, ranking them against a resume and user need, opening selected job detail pages as same-browser tabs, or summarizing contact/interview follow-ups from communication pages.
+description: Use when screening BOSS Zhipin, Liepin, or 51job jobs from the user's logged-in Edge/Chrome CDP browser, ranking them against a resume and user need, opening selected job detail pages as same-browser tabs, or summarizing contact/interview follow-ups from communication pages.
 ---
 
 # Job Board Page Opener
@@ -28,17 +28,29 @@ execution.
    background tab first:
    `.\tools\job-board.cmd collect --site liepin --url "<search url>"`
 5. Rank against the resume and current requirement:
-   `.\tools\job-board.cmd rank --input <candidates.json> --need "<user need>" --resume 求职简历.docx`
+   `.\tools\job-board.cmd rank --input <candidates.json> --profile ai-agent-dev --resume 求职简历.docx`
    If Chinese text is garbled through `cmd.exe`, run the same command with the
    Codex bundled Node:
    `& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" .\tools\job_board_harness.mjs rank --input <candidates.json> --need "<user need>" --resume 求职简历.docx`
-6. Review the generated `.md` and `.json`. Keep only real job detail pages with
-   direct resume overlap.
-7. Open selected details as background tabs in the same Edge Beta browser:
+   If card evidence is too thin, run a controlled detail pass before final
+   review:
+   `.\tools\job-board.cmd extract-details --input <selection.json> --out <details.json> --concurrency 2`
+   `.\tools\job-board.cmd rank --input <details.json> --profile ai-agent-dev`
+6. Run the structured Codex review contract and convert it to a selection:
+   `.\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev`
+   For a formal Codex review handoff, first run:
+   `.\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev --prepare --out <agent_review_request.json>`
+   `.\tools\job-board.cmd select --review <agent_review.json>`
+   Selected review items must include the original candidate evidence; do not
+   invent ids or URLs.
+7. Open selected details as resumable batches in the same Edge Beta browser:
+   `.\tools\job-board.cmd open-batches --input <selection.json> --max-per-batch 15 --cooldown 45s --jitter 10s`
+   The older `open` command remains available for one-shot compatibility:
    `.\tools\job-board.cmd open --input <selection.json> --max-per-batch 15`
    `open` should receive only detail URLs. It rejects BOSS `/web/geek/jobs` and
    Liepin `/zhaopin/` list/search pages by default, preserves BOSS
-   `securityId`/`lid`/`ka` parameters, and uses the first detail page for the
+   `securityId`/`lid`/`ka` parameters, accepts 51job detail pages through the
+   site adapter, and uses the first detail page for the
    live auth probe to avoid leaving a generic search page as the final user
    surface. After a live batch, it closes BOSS/Liepin search/list tabs by
    default; run `.\tools\job-board.cmd cleanup-pages` if a previous collection
@@ -77,8 +89,12 @@ execution.
   message anyone automatically. Do not store raw contact values unless the user
   explicitly asks for that deliverable.
 - Stop or slow down if commands report access limitation, captcha, or
-  verification text.
+  verification text. `collect`, `extract-details`, `open`, `open-batches`, and
+  `test-fixture` use exit code `3` for access-limited/user-action-required
+  states.
 - Do not open more than 15 tabs in one batch unless the user explicitly asks;
   pass `--confirm-large` only after that confirmation.
+- Prefer `open-batches --resume` after a paused queue instead of recreating the
+  queue from scratch.
 - Track dedup through `.tmp/job_board_harness/opened_ids.txt`; use
   `--allow-previous` only when the user wants repeated opens.

@@ -1,0 +1,4 @@
+max_per_batch: 15
+batch_cooldown_ms: 45000
+jitter_ms: 10000
+stop_on_access_limited: true

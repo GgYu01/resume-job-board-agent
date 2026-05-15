@@ -1,0 +1,79 @@
+id: ai-agent-dev
+label: AI Agent 工程化
+version: 1
+created_by: codex-agent
+last_reviewed: "2026-05-15"
+
+user_intent:
+  summary: "筛选 AI Agent、Codex、浏览器自动化、RAG、LLM 应用工程化相关岗位"
+  final_surface: "open_detail_pages_only"
+
+must_have:
+  - term: "AI Agent"
+    weight: 18
+  - term: "LLM"
+    weight: 14
+  - term: "RAG"
+    weight: 12
+  - term: "大模型"
+    weight: 12
+  - term: "智能体"
+    weight: 14
+
+should_have:
+  - term: "Codex"
+    weight: 12
+  - term: "MCP"
+    weight: 12
+  - term: "浏览器自动化"
+    weight: 10
+  - term: "工作流"
+    weight: 8
+  - term: "工程化"
+    weight: 10
+  - term: "Python"
+    weight: 8
+
+nice_to_have:
+  - term: "OpenAI"
+    weight: 8
+  - term: "AIGC"
+    weight: 6
+  - term: "Agentic"
+    weight: 8
+  - term: "workflow automation"
+    weight: 8
+
+negative:
+  - term: "销售"
+    weight: -30
+  - term: "客服"
+    weight: -30
+  - term: "讲师"
+    weight: -20
+  - term: "运营"
+    weight: -18
+  - term: "纯测试"
+    weight: -12
+
+hard_filters:
+  min_salary: null
+  max_experience_years: null
+  cities: []
+  reject_internship: true
+  reject_part_time: true
+
+ranking_policy:
+  use_default_terms: false
+
+review_policy:
+  codex_review_top_n: 40
+  codex_review_borderline_n: 20
+  require_evidence: true
+  allow_uncertain: false
+
+batch_policy:
+  max_per_batch: 15
+  batch_cooldown_ms: 45000
+  jitter_ms: 10000
+  stop_on_access_limited: true

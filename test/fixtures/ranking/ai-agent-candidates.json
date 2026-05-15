@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "id": "good-agent",
+      "site": "boss",
+      "title": "AI Agent 工程师",
+      "company": "Future AI",
+      "url": "https://www.zhipin.com/job_detail/good-agent.html?securityId=sec",
+      "cardText": "负责 LLM、RAG、MCP、workflow automation、浏览器自动化工程化。"
+    },
+    {
+      "id": "noise-sales",
+      "site": "boss",
+      "title": "AI 销售顾问",
+      "company": "Noise Co",
+      "url": "https://www.zhipin.com/job_detail/noise-sales.html",
+      "cardText": "销售 客服 运营 线索转化。"
+    },
+    {
+      "id": "borderline-platform",
+      "site": "liepin",
+      "title": "平台工程师",
+      "company": "Platform Co",
+      "url": "https://www.liepin.com/job/1981404985.shtml",
+      "cardText": "Python 自动化，内部工具。"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+id: embedded-linux
+label: 嵌入式 Linux 驱动
+version: 1
+created_by: codex-agent
+last_reviewed: "2026-05-15"
+
+user_intent:
+  summary: "筛选偏嵌入式 Linux、驱动、内核、Android 底层、车载或芯片相关岗位"
+  final_surface: "open_detail_pages_only"
+
+must_have:
+  - term: "Linux"
+    weight: 15
+  - term: "驱动"
+    weight: 18
+  - term: "内核"
+    weight: 14
+  - term: "嵌入式"
+    weight: 14
+
+should_have:
+  - term: "Android"
+    weight: 10
+  - term: "BSP"
+    weight: 12
+  - term: "HAL"
+    weight: 10
+  - term: "Qualcomm"
+    weight: 10
+  - term: "高通"
+    weight: 10
+  - term: "MTK"
+    weight: 10
+
+nice_to_have:
+  - term: "Hypervisor"
+    weight: 8
+  - term: "virtio"
+    weight: 8
+  - term: "车载"
+    weight: 6
+  - term: "AUTOSAR"
+    weight: 6
+
+negative:
+  - term: "销售"
+    weight: -30
+  - term: "客服"
+    weight: -30
+  - term: "讲师"
+    weight: -20
+  - term: "纯测试"
+    weight: -12
+
+hard_filters:
+  min_salary: null
+  max_experience_years: null
+  cities: []
+  reject_internship: true
+  reject_part_time: true
+
+ranking_policy:
+  use_default_terms: false
+
+review_policy:
+  codex_review_top_n: 40
+  codex_review_borderline_n: 20
+  require_evidence: true
+  allow_uncertain: false
+
+batch_policy:
+  max_per_batch: 15
+  batch_cooldown_ms: 45000
+  jitter_ms: 10000
+  stop_on_access_limited: true

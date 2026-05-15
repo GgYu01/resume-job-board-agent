@@ -1,0 +1,83 @@
+id: devops-sre
+label: DevOps / SRE / 云原生平台
+version: 1
+created_by: codex-agent
+last_reviewed: "2026-05-15"
+
+user_intent:
+  summary: "筛选 DevOps、SRE、云原生、平台工程、自动化运维相关岗位"
+  final_surface: "open_detail_pages_only"
+
+must_have:
+  - term: "DevOps"
+    weight: 15
+  - term: "SRE"
+    weight: 14
+  - term: "Kubernetes"
+    weight: 14
+  - term: "K8s"
+    weight: 14
+  - term: "云原生"
+    weight: 12
+
+should_have:
+  - term: "Docker"
+    weight: 8
+  - term: "Jenkins"
+    weight: 8
+  - term: "Argo"
+    weight: 8
+  - term: "Helm"
+    weight: 8
+  - term: "Terraform"
+    weight: 8
+  - term: "Prometheus"
+    weight: 8
+  - term: "Grafana"
+    weight: 8
+  - term: "平台工程"
+    weight: 10
+  - term: "运维开发"
+    weight: 10
+
+nice_to_have:
+  - term: "自动化"
+    weight: 8
+  - term: "可观测"
+    weight: 6
+  - term: "CI/CD"
+    weight: 8
+
+negative:
+  - term: "销售"
+    weight: -30
+  - term: "客服"
+    weight: -30
+  - term: "桌面运维"
+    weight: -16
+  - term: "机房值班"
+    weight: -16
+  - term: "讲师"
+    weight: -20
+
+hard_filters:
+  min_salary: null
+  max_experience_years: null
+  cities: []
+  reject_internship: true
+  reject_part_time: true
+
+ranking_policy:
+  use_default_terms: false
+
+review_policy:
+  codex_review_top_n: 40
+  codex_review_borderline_n: 20
+  require_evidence: true
+  allow_uncertain: false
+
+batch_policy:
+  max_per_batch: 15
+  batch_cooldown_ms: 45000
+  jitter_ms: 10000
+  stop_on_access_limited: true
