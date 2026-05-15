@@ -146,6 +146,48 @@ test("open dry-run keeps only detail pages and preserves BOSS securityId", () =>
   ]);
 });
 
+test("open dry-run reports no new jobs when every record is previously opened", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_no_new_jobs_"));
+  const input = path.join(stateDir, "selection.json");
+  const openedId = "previously_seen";
+  fs.writeFileSync(path.join(stateDir, "opened_ids.txt"), `boss:${openedId}\n`, "utf8");
+  fs.writeFileSync(
+    input,
+    `${JSON.stringify(
+      {
+        selected: [
+          {
+            site: "boss",
+            title: "AI Agent 工程师",
+            company: "Future AI",
+            url: `https://www.zhipin.com/job_detail/${openedId}.html?securityId=sec`,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const output = execFileSync(process.execPath, [
+    HARNESS,
+    "open",
+    "--dry-run",
+    "--input",
+    input,
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir },
+  });
+
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.status, "no-new-jobs");
+  assert.equal(parsed.would_open_count, 0);
+  assert.equal(parsed.rejected[0].skipReason, "already-opened");
+});
+
 test("help exposes search/list cleanup controls", () => {
   const help = execFileSync(process.execPath, [HARNESS, "help"], {
     cwd: ROOT,
@@ -154,4 +196,5 @@ test("help exposes search/list cleanup controls", () => {
 
   assert.match(help, /cleanup-pages/);
   assert.match(help, /--keep-search-pages/);
+  assert.match(help, /--trigger-contact/);
 });

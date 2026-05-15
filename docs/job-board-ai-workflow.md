@@ -205,6 +205,11 @@ The CLI uses CDP `Target.createTarget` with `background: true`. It refuses to
 open more than 15 tabs per batch unless `--confirm-large` is passed after the
 user explicitly asks for a larger batch.
 
+If the user explicitly wants the site default communication flow, add
+`--trigger-contact`. After opening recognized BOSS/Liepin detail pages, the
+harness will try to click BOSS `立即沟通` or Liepin `聊一聊`; it does not type a
+custom message. Keep this opt-in because it can notify HR through the job site.
+
 `open` runs the login-state gate by default. For detail-opening batches it uses
 the first selected detail URL for the auth probe, so BOSS does not leave
 `/web/geek/jobs` as the final visible work page. If auth is not ready it opens
@@ -248,7 +253,19 @@ The CLI records opened detail IDs and URLs in:
 ```text
 .tmp/job_board_harness/opened_ids.txt
 .tmp/job_board_harness/opened_urls.txt
+.tmp/job_board_harness/opened_keys.txt
 ```
+
+`opened_keys.txt` stores semantic job identity keys derived from title, company,
+and location when the selection contains those fields. This prevents reopening
+the same position when a board emits a different detail id or URL for the same
+company/job card. If every candidate is filtered out as already opened or
+duplicated, `open`/`open-batches` return JSON with `status: "no-new-jobs"` and
+do not open browser tabs.
+
+For older runs that predate `opened_keys.txt`, `opened`/`open` also read local
+`opened*.json` and `opened_batches*.json` receipts and infer conservative keys
+from stored title/card text when possible.
 
 Show counts:
 

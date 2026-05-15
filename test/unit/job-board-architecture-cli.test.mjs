@@ -10,10 +10,11 @@ const ROOT = path.resolve(path.dirname(__filename), "..", "..");
 const HARNESS = path.join(ROOT, "tools", "job_board_harness.mjs");
 const STATE_DIR = path.join(ROOT, ".tmp", "job_board_harness");
 
-function runHarness(args) {
+function runHarness(args, options = {}) {
   return execFileSync(process.execPath, [HARNESS, ...args], {
     cwd: ROOT,
     encoding: "utf8",
+    env: options.env || process.env,
   });
 }
 
@@ -30,10 +31,11 @@ test("profile commands expose durable role configs", () => {
 });
 
 test("agent-review emits a structured review contract and select consumes it", () => {
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  const rankedFile = path.join(STATE_DIR, "test_ranked_for_review.json");
-  const reviewFile = path.join(STATE_DIR, "test_agent_review.json");
-  const selectionFile = path.join(STATE_DIR, "test_selection_from_review.json");
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_agent_review_state_"));
+  const env = { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir };
+  const rankedFile = path.join(stateDir, "test_ranked_for_review.json");
+  const reviewFile = path.join(stateDir, "test_agent_review.json");
+  const selectionFile = path.join(stateDir, "test_selection_from_review.json");
   fs.rmSync(reviewFile, { force: true });
   fs.rmSync(selectionFile, { force: true });
 
@@ -89,7 +91,7 @@ test("agent-review emits a structured review contract and select consumes it", (
     "ai-agent-dev",
     "--out",
     reviewFile,
-  ]));
+  ], { env }));
 
   assert.equal(reviewSummary.output, reviewFile);
   const review = JSON.parse(fs.readFileSync(reviewFile, "utf8"));
@@ -105,7 +107,7 @@ test("agent-review emits a structured review contract and select consumes it", (
     reviewFile,
     "--out",
     selectionFile,
-  ]));
+  ], { env }));
   assert.equal(selectSummary.selected_count, 1);
   const selection = JSON.parse(fs.readFileSync(selectionFile, "utf8"));
   assert.deepEqual(selection.selected.map((item) => item.id), ["candidate_boss_good"]);
@@ -193,6 +195,230 @@ test("open-batches dry-run creates a resumable queue without opening the browser
   const queue = JSON.parse(fs.readFileSync(queueFile, "utf8"));
   assert.equal(queue.cooldown_ms, 45000);
   assert.equal(queue.jitter_ms, 10000);
+});
+
+test("select drops duplicate and previously opened semantic jobs", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_select_dedupe_"));
+  const reviewFile = path.join(stateDir, "review.json");
+  const selectionFile = path.join(stateDir, "selection.json");
+  fs.writeFileSync(path.join(stateDir, "opened_keys.txt"), "sig:platform sre|cloud co|shanghai\n", "utf8");
+  fs.writeFileSync(
+    reviewFile,
+    `${JSON.stringify(
+      {
+        reviewed_at: "2026-05-15T00:00:00.000Z",
+        profile: "ai-agent-dev",
+        selection: [
+          {
+            id: "boss-ai-agent",
+            decision: "select",
+            confidence: "high",
+            reason: "strong match",
+            risk: "none",
+            candidate: {
+              id: "boss-ai-agent",
+              site: "boss",
+              title: "Senior AI Agent Engineer",
+              company: "Future AI",
+              location: "Shenzhen",
+              url: "https://www.zhipin.com/job_detail/first-account-id.html?securityId=sec",
+              score: 82,
+            },
+          },
+          {
+            id: "liepin-ai-agent",
+            decision: "select",
+            confidence: "high",
+            reason: "same job from another site",
+            risk: "none",
+            candidate: {
+              id: "liepin-ai-agent",
+              site: "liepin",
+              title: "Senior AI Agent Engineer",
+              company: "Future AI",
+              location: "Shenzhen",
+              url: "https://www.liepin.com/job/1981404999.shtml",
+              score: 80,
+            },
+          },
+          {
+            id: "previously-opened",
+            decision: "select",
+            confidence: "high",
+            reason: "already reviewed in an earlier run",
+            risk: "none",
+            candidate: {
+              id: "previously-opened",
+              site: "boss",
+              title: "Platform SRE",
+              company: "Cloud Co",
+              location: "Shanghai",
+              url: "https://www.zhipin.com/job_detail/previously-opened.html",
+              score: 76,
+            },
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const output = JSON.parse(execFileSync(process.execPath, [
+    HARNESS,
+    "select",
+    "--review",
+    reviewFile,
+    "--out",
+    selectionFile,
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir },
+  }));
+
+  assert.equal(output.selected_count, 1);
+  assert.equal(output.rejected_count, 2);
+  const selection = JSON.parse(fs.readFileSync(selectionFile, "utf8"));
+  assert.deepEqual(selection.selected.map((item) => item.id), ["boss-ai-agent"]);
+  assert.deepEqual(selection.rejected.map((item) => item.skipReason), [
+    "duplicate-job-signature",
+    "already-opened",
+  ]);
+});
+
+test("open-batches dry-run skips semantic jobs opened in earlier runs", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_open_batches_semantic_"));
+  const input = path.join(stateDir, "selection.json");
+  const queueFile = path.join(stateDir, "queue.json");
+  fs.writeFileSync(path.join(stateDir, "opened_keys.txt"), "sig:senior ai agent engineer|future ai|shenzhen\n", "utf8");
+  fs.writeFileSync(
+    input,
+    `${JSON.stringify(
+      {
+        selected: [
+          {
+            id: "same-job-new-account-url",
+            site: "boss",
+            title: "Senior AI Agent Engineer",
+            company: "Future AI",
+            location: "Shenzhen",
+            url: "https://www.zhipin.com/job_detail/second-account-id.html?securityId=sec",
+          },
+          {
+            id: "new-job",
+            site: "liepin",
+            title: "Runtime Systems Engineer",
+            company: "Kernel Co",
+            location: "Beijing",
+            url: "https://www.liepin.com/job/1981405000.shtml",
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const output = JSON.parse(execFileSync(process.execPath, [
+    HARNESS,
+    "open-batches",
+    "--input",
+    input,
+    "--queue",
+    queueFile,
+    "--max-per-batch",
+    "15",
+    "--dry-run",
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir },
+  }));
+
+  assert.equal(output.queue.total, 1);
+  assert.equal(output.queue.items[0].record.id, "new-job");
+  assert.deepEqual(output.rejected.map((item) => item.skipReason), ["already-opened"]);
+});
+
+test("open-batches resume rechecks pending queue items against opened state", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_open_batches_resume_"));
+  const queueFile = path.join(stateDir, "queue.json");
+  fs.writeFileSync(path.join(stateDir, "opened_keys.txt"), "sig:senior ai agent engineer|future ai|shenzhen\n", "utf8");
+  fs.writeFileSync(
+    queueFile,
+    `${JSON.stringify(
+      {
+        queue_id: "resume-test",
+        status: "pending",
+        reason: "",
+        created_at: "2026-05-15T00:00:00.000Z",
+        updated_at: "2026-05-15T00:00:00.000Z",
+        max_per_batch: 15,
+        cooldown_ms: 0,
+        jitter_ms: 0,
+        stop_on_access_limited: true,
+        cursor: 0,
+        total: 2,
+        opened: 0,
+        failed: 0,
+        remaining: 2,
+        items: [
+          {
+            index: 0,
+            status: "pending",
+            opened_at: null,
+            error: null,
+            record: {
+              id: "already-opened",
+              site: "boss",
+              title: "Senior AI Agent Engineer",
+              company: "Future AI",
+              location: "Shenzhen",
+              url: "https://www.zhipin.com/job_detail/resume-duplicate.html",
+            },
+          },
+          {
+            index: 1,
+            status: "pending",
+            opened_at: null,
+            error: null,
+            record: {
+              id: "new-resume-job",
+              site: "liepin",
+              title: "Runtime Systems Engineer",
+              company: "Kernel Co",
+              location: "Beijing",
+              url: "https://www.liepin.com/job/1981405001.shtml",
+            },
+          },
+        ],
+        receipts: [],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const output = JSON.parse(execFileSync(process.execPath, [
+    HARNESS,
+    "open-batches",
+    "--resume",
+    "--queue",
+    queueFile,
+    "--dry-run",
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir },
+  }));
+
+  assert.equal(output.queue.remaining, 1);
+  assert.equal(output.queue.items[0].status, "opened");
+  assert.deepEqual(output.rejected.map((item) => item.skipReason), ["already-opened"]);
 });
 
 test("doctor reports local readiness without requiring a live CDP browser", () => {

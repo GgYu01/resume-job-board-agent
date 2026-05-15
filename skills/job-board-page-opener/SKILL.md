@@ -56,6 +56,10 @@ execution.
    default; run `.\tools\job-board.cmd cleanup-pages` if a previous collection
    step left generic pages open. Use `--keep-search-pages` only when the user
    explicitly wants those pages preserved.
+   If the user explicitly asks to trigger the job-site default communication
+   mechanism, add `--trigger-contact`. The harness then tries BOSS `立即沟通`
+   and Liepin `聊一聊` on opened detail pages and does not type custom text.
+   Keep this opt-in because it can notify HR through the site.
 8. To summarize contacts that exchanged WeChat/contact details or look likely
    to continue into interview scheduling, open the relevant BOSS/Liepin chat or
    message pages in the Edge Beta profile and run:
@@ -96,5 +100,12 @@ execution.
   pass `--confirm-large` only after that confirmation.
 - Prefer `open-batches --resume` after a paused queue instead of recreating the
   queue from scratch.
-- Track dedup through `.tmp/job_board_harness/opened_ids.txt`; use
-  `--allow-previous` only when the user wants repeated opens.
+- Track dedup through `.tmp/job_board_harness/opened_ids.txt`,
+  `.tmp/job_board_harness/opened_urls.txt`, and
+  `.tmp/job_board_harness/opened_keys.txt`. The keys file stores semantic
+  title/company/location identities so repeated positions with different
+  detail IDs are skipped. The harness also backfills from older local
+  `opened*.json` receipts when title/card text is available. If
+  `open`/`open-batches` reports
+  `status: "no-new-jobs"`, do not try to force-open the same batch unless the
+  user explicitly asks for `--allow-previous`.

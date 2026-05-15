@@ -346,6 +346,16 @@ Current conclusion:
   browser path resolution order.
 - `test-fixture` covers fixture dry-runs without live site access. Captcha or
   verification fixtures exit with code `3`.
+- Open-state dedup now lives in `src/state/opened-state.mjs` and writes
+  `.tmp/job_board_harness/opened_keys.txt` in addition to IDs and URLs. The
+  keys include title/company/location signatures when available, so the harness
+  can report `status: "no-new-jobs"` instead of reopening a repeated position
+  with a different board URL. It also backfills in-memory keys from older local
+  `opened*.json` and `opened_batches*.json` receipts when those receipts contain
+  enough title/card evidence.
+- `open` and `open-batches` accept the opt-in `--trigger-contact` flag. It
+  attempts BOSS `立即沟通` and Liepin `聊一聊` on opened detail pages to trigger
+  the sites' default communication flow, without typing custom text.
 - `feedback` appends regression metrics to
   `.tmp/job_board_harness/regression_metrics.jsonl`.
 - Keep the project-local skills under `skills/`: `job-board-page-opener`,
