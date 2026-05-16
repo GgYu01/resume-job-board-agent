@@ -207,8 +207,12 @@ user explicitly asks for a larger batch.
 
 If the user explicitly wants the site default communication flow, add
 `--trigger-contact`. After opening recognized BOSS/Liepin detail pages, the
-harness will try to click BOSS `立即沟通` or Liepin `聊一聊`; it does not type a
-custom message. Keep this opt-in because it can notify HR through the job site.
+harness will try to click BOSS `立即沟通` / `继续沟通` or Liepin `聊一聊`; it does
+not type a custom message. Keep this opt-in because it can notify HR through
+the job site. Receipts include `verification.status`, `messageSent`,
+`contact_verified_count`, and `contact_message_sent_count`; treat
+`contact_message_sent_count` as the conservative signal for likely default
+message delivery.
 
 `open` runs the login-state gate by default. For detail-opening batches it uses
 the first selected detail URL for the auth probe, so BOSS does not leave

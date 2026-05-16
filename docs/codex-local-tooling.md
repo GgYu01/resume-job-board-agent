@@ -354,8 +354,8 @@ Current conclusion:
   `opened*.json` and `opened_batches*.json` receipts when those receipts contain
   enough title/card evidence.
 - `open` and `open-batches` accept the opt-in `--trigger-contact` flag. It
-  attempts BOSS `立即沟通` and Liepin `聊一聊` on opened detail pages to trigger
-  the sites' default communication flow, without typing custom text.
+  attempts BOSS `立即沟通` / `继续沟通` and Liepin `聊一聊` on opened detail pages
+  to trigger the sites' default communication flow, without typing custom text.
 - `feedback` appends regression metrics to
   `.tmp/job_board_harness/regression_metrics.jsonl`.
 - Keep the project-local skills under `skills/`: `job-board-page-opener`,
@@ -366,3 +366,28 @@ Current conclusion:
   `npm run doctor` as optional shortcuts when npm is available. In this Codex
   Desktop runtime, direct `node --test ...` and
   `node tools/job_board_harness.mjs doctor` are the verified baseline.
+
+### 2026-05-15 contact trigger verification update
+
+- Live CDP DOM inspection confirmed BOSS detail pages can expose `继续沟通`
+  through `.btn-startchat` / `.btn-startchat-wrap` when a conversation already
+  exists, while Liepin detail pages expose visible `聊一聊` controls through
+  `.btn-main` and `.btn-chat`.
+- `src/sites/contact-actions.mjs` now targets BOSS `立即沟通` and `继续沟通`,
+  prefers the site-specific chat button classes, and exports a verification
+  expression for post-click state checks.
+- `open` and `open-batches --trigger-contact` now record
+  `verification.status`, `messageSent`, `contact_verified_count`, and
+  `contact_message_sent_count`. Use `contact_message_sent_count` as the
+  conservative signal that a default message likely reached HR.
+- Verified commands:
+
+```powershell
+node --test test\unit\contact-actions.test.mjs
+node --check src\sites\contact-actions.mjs
+node --check src\cli\runtime.mjs
+```
+
+- Tooling review: keep the project CDP harness and project-local skill as the
+  primary workflow. No new MCP server or CLI helper is needed; generic browser
+  MCPs still do not own the durable BOSS/Liepin login profile.

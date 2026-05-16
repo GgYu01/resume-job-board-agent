@@ -58,8 +58,12 @@ execution.
    explicitly wants those pages preserved.
    If the user explicitly asks to trigger the job-site default communication
    mechanism, add `--trigger-contact`. The harness then tries BOSS `立即沟通`
-   and Liepin `聊一聊` on opened detail pages and does not type custom text.
-   Keep this opt-in because it can notify HR through the site.
+   / `继续沟通` and Liepin `聊一聊` on opened detail pages and does not type
+   custom text. It records `verification.status`, `messageSent`,
+   `contact_verified_count`, and `contact_message_sent_count` in the receipt;
+   use `contact_message_sent_count` when the user asks whether a default
+   message likely reached HR. Keep this opt-in because it can notify HR
+   through the site.
 8. To summarize contacts that exchanged WeChat/contact details or look likely
    to continue into interview scheduling, open the relevant BOSS/Liepin chat or
    message pages in the Edge Beta profile and run:
