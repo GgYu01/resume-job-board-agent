@@ -197,4 +197,5 @@ test("help exposes search/list cleanup controls", () => {
   assert.match(help, /cleanup-pages/);
   assert.match(help, /--keep-search-pages/);
   assert.match(help, /--trigger-contact/);
+  assert.match(help, /--keep-contact-pages/);
 });

@@ -16,7 +16,7 @@ export function stripHtml(html) {
 
 export function detectAccessLimited(text, url = "") {
   const haystack = `${stripHtml(text)} ${url}`;
-  return /安全验证|验证码|访问过于频繁|滑块|captcha|verify|verification|_security_check|safe\.liepin\.com|verify\.zhipin\.com/i.test(haystack);
+  return /安全验证|访问过于频繁|滑块|captcha|verify|verification|_security_check|safe\.liepin\.com|verify\.zhipin\.com/i.test(haystack);
 }
 
 function decodeHtmlAttr(value) {

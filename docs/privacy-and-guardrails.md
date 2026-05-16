@@ -13,7 +13,7 @@ Last reviewed: 2026-05-15
 
 `summarize-contacts` can classify and summarize possible follow-ups. It must not send messages or trigger contact. Evidence snippets redact contact values by default.
 
-`open` and `open-batches` may trigger the job-site default communication flow only when the user explicitly requests `--trigger-contact`. Those receipts should record click and verification status, but still must not store raw cookie values, passwords, or exported browser state.
+`open` and `open-batches` may trigger the job-site default communication flow only when the user explicitly requests `--trigger-contact`. Those receipts should record preflight, click, verification, and close status, but still must not store raw cookie values, passwords, or exported browser state. Resolved contact pages may close automatically; failed or uncertain pages must remain open for user inspection.
 
 Allowed:
 

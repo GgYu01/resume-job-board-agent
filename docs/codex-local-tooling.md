@@ -354,8 +354,9 @@ Current conclusion:
   `opened*.json` and `opened_batches*.json` receipts when those receipts contain
   enough title/card evidence.
 - `open` and `open-batches` accept the opt-in `--trigger-contact` flag. It
-  attempts BOSS `立即沟通` / `继续沟通` and Liepin `聊一聊` on opened detail pages
-  to trigger the sites' default communication flow, without typing custom text.
+  attempts BOSS `立即沟通` / `继续沟通`, Liepin `聊一聊`, and conservative
+  communication synonyms on opened detail pages to trigger the sites' default
+  communication flow, without typing custom text.
   Contact attempts now use slower defaults, strict post-click verification, and
   retry before failing. A bare `继续沟通` marker no longer proves the click
   triggered; `open` exits non-zero and `open-batches` pauses the queue when a
@@ -397,6 +398,19 @@ Current conclusion:
 - `open` and `open-batches --trigger-contact` record `contactFailures` and
   `contact_failed_count`; failed supported-site contact verification exits with
   code 4. `open-batches` also marks the batch failed and pauses the queue.
+- Contact triggering now has a deterministic preflight state check. Pages that
+  are already contacted are recorded as `noContactNeeded`; pages that strictly
+  verify after clicking or are already satisfied are closed by default. Failed
+  or uncertain contact pages are not closed. Use `--keep-contact-pages` only for
+  intentional inspection of resolved pages.
+- The trigger surface accepts conservative communication synonyms such as
+  `在线沟通` in addition to the primary BOSS/Liepin labels, while verification
+  still requires chat UI/URL, sent/default-message evidence, or an
+  already-contacted marker after a direct communication action.
+- `agent-review --prepare` now includes a low-cost-model-safe contract, and
+  review-output validation rejects attempts to request browser opening, contact
+  triggering, message sending, or job application actions from the judgment
+  phase.
 - Tooling review: keep the current project CDP harness and local skills. No new
   project-local skill, MCP server, or CLI helper is needed for this stricter
   behavior.

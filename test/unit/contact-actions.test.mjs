@@ -5,7 +5,9 @@ import vm from "node:vm";
 import {
   contactActionLabels,
   contactActionFailures,
+  contactPageStateExpression,
   contactTriggerExpression,
+  contactVerificationOutcome,
   contactVerificationExpression,
 } from "../../src/sites/contact-actions.mjs";
 import { createContactActionRunner } from "../../src/cli/runtime.mjs";
@@ -129,6 +131,21 @@ test("contact trigger expression clicks Liepin detail-page chat buttons", () => 
   assert.equal(operate.clicked, 0);
 });
 
+test("contact trigger expression clicks conservative communication synonyms", () => {
+  const operate = new FakeElement({ className: "job-apply-operate", text: "\u5728\u7ebf\u6c9f\u901a" });
+  const chat = new FakeElement({ tag: "button", className: "btn-chat", text: "\u5728\u7ebf\u6c9f\u901a", parent: operate });
+
+  const result = runBrowserExpression(contactTriggerExpression("liepin"), [operate, chat], {
+    url: "https://www.liepin.com/a/74696909.shtml",
+    title: "Liepin detail",
+  });
+
+  assert.equal(result.clicked, true);
+  assert.equal(result.label, "\u5728\u7ebf\u6c9f\u901a");
+  assert.equal(chat.clicked, 1);
+  assert.equal(operate.clicked, 0);
+});
+
 test("contact verification expression does not treat a bare BOSS continue button as triggered", () => {
   const startChat = new FakeElement({ tag: "a", className: "btn btn-startchat", text: "继续沟通" });
 
@@ -169,6 +186,47 @@ test("contact verification expression does not treat a bare Liepin chat button a
   assert.equal(result.messageSent, false);
 });
 
+test("contact page state treats an existing BOSS conversation marker as no-contact-needed", () => {
+  const startChat = new FakeElement({ tag: "a", className: "btn btn-startchat", text: "\u7ee7\u7eed\u6c9f\u901a" });
+
+  const result = runBrowserExpression(contactPageStateExpression("boss"), [startChat], {
+    url: "https://www.zhipin.com/job_detail/example.html",
+    title: "BOSS detail",
+  });
+
+  assert.equal(result.alreadySatisfied, true);
+  assert.equal(result.alreadyContacted, true);
+  assert.equal(result.shouldTrigger, false);
+  assert.equal(result.status, "existing-conversation-marker");
+  assert(result.signals.includes("existing-conversation-action"));
+});
+
+test("contact page state does not treat generic contacted sidebar text as no-contact-needed", () => {
+  const sidebar = new FakeElement({ className: "side-entry", text: "\u611f\u5174\u8da3 \u6c9f\u901a\u8fc7 \u5df2\u6295\u9012" });
+  const startChat = new FakeElement({ tag: "a", className: "btn btn-startchat", text: "\u7acb\u5373\u6c9f\u901a" });
+
+  const result = runBrowserExpression(contactPageStateExpression("boss"), [sidebar, startChat], {
+    url: "https://www.zhipin.com/job_detail/example.html",
+    title: "BOSS detail",
+  });
+
+  assert.equal(result.alreadySatisfied, false);
+  assert.equal(result.alreadyContacted, false);
+  assert.equal(result.shouldTrigger, true);
+  assert.equal(result.triggerAvailable, true);
+  assert(result.signals.includes("already-contacted-text"));
+});
+
+test("contact verification outcome treats direct communication synonyms as strict success after contacted marker", () => {
+  const outcome = contactVerificationOutcome(
+    { site: "liepin", clicked: true, label: "\u5728\u7ebf\u6c9f\u901a" },
+    { site: "liepin", status: "existing-conversation-marker", alreadyContacted: true, conversationOpen: false, messageSent: false },
+  );
+
+  assert.equal(outcome.verified, true);
+  assert.equal(outcome.messageSent, true);
+});
+
 test("contact verification expression does not treat generic homepage dialog classes as chat", () => {
   const shell = new FakeElement({ className: "conversation dialog", text: "推荐 职位 搜索 消息" });
   const floatingEntry = new FakeElement({ className: "im-ui-basic-entry im-ui-basic-entry-c", text: "我的沟通" });
@@ -183,6 +241,58 @@ test("contact verification expression does not treat generic homepage dialog cla
   assert.equal(result.conversationOpen, false);
 });
 
+test("contact action runner closes pages only when contact is already satisfied before clicking", async () => {
+  const target = {
+    id: "boss-detail",
+    type: "page",
+    url: "https://www.zhipin.com/job_detail/example.html",
+    webSocketDebuggerUrl: "ws://example",
+  };
+  const evaluatedExpressions = [];
+  const closedTargets = [];
+  const runner = createContactActionRunner({
+    listTargets: async () => [target],
+    evaluateTarget: async (_target, expression) => {
+      evaluatedExpressions.push(expression);
+      if (String(expression).includes("__JOB_BOARD_CONTACT_PAGE_STATE__")) {
+        return {
+          supported: true,
+          alreadySatisfied: true,
+          alreadyContacted: true,
+          shouldTrigger: false,
+          status: "existing-conversation-marker",
+          signals: ["existing-conversation-action"],
+        };
+      }
+      throw new Error("already-contacted pages should not click contact controls");
+    },
+    closeTarget: async (port, targetId, reason) => {
+      closedTargets.push({ port, targetId, reason });
+      return { closed: true, targetId, reason };
+    },
+    delay: async () => {},
+  });
+
+  const [action] = await runner.triggerContactActions(9222, [
+    { id: "boss-ai", site: "boss", url: target.url, targetId: target.id },
+  ], {
+    enabled: true,
+    delayMs: 0,
+    verifyDelayMs: 0,
+    retryDelayMs: 0,
+    maxAttempts: 2,
+    betweenRecordsDelayMs: 0,
+  });
+
+  assert.equal(action.verified, true);
+  assert.equal(action.noContactNeeded, true);
+  assert.equal(action.clicked, false);
+  assert.equal(action.attemptCount, 0);
+  assert.equal(action.close.closed, true);
+  assert.deepEqual(closedTargets, [{ port: 9222, targetId: "boss-detail", reason: "contact-already-satisfied" }]);
+  assert.equal(evaluatedExpressions.length, 1);
+});
+
 test("contact action runner retries when a clicked BOSS continue button is not strictly verified", async () => {
   const target = {
     id: "boss-detail",
@@ -191,6 +301,7 @@ test("contact action runner retries when a clicked BOSS continue button is not s
     webSocketDebuggerUrl: "ws://example",
   };
   const evaluations = [
+    { supported: true, alreadySatisfied: false, alreadyContacted: false, shouldTrigger: true, status: "needs-trigger" },
     { clicked: true, label: "继续沟通", targetText: "继续沟通" },
     { verified: true, status: "existing-conversation-marker", alreadyContacted: true, conversationOpen: false, messageSent: false },
     { clicked: true, label: "继续沟通", targetText: "继续沟通" },
@@ -217,6 +328,46 @@ test("contact action runner retries when a clicked BOSS continue button is not s
   assert.equal(action.attemptCount, 2);
   assert.equal(action.attempts[0].verified, false);
   assert.equal(action.verification.status, "conversation-opened");
+});
+
+test("contact action runner leaves uncertain unverified pages open", async () => {
+  const target = {
+    id: "liepin-detail",
+    type: "page",
+    url: "https://www.liepin.com/a/74696909.shtml",
+    webSocketDebuggerUrl: "ws://example",
+  };
+  const closedTargets = [];
+  const evaluations = [
+    { supported: true, alreadySatisfied: false, alreadyContacted: false, shouldTrigger: true, status: "needs-trigger" },
+    { supported: true, attempted: true, clicked: false, reason: "button-not-found" },
+    { supported: true, attempted: true, clicked: false, reason: "button-not-found" },
+  ];
+  const runner = createContactActionRunner({
+    listTargets: async () => [target],
+    evaluateTarget: async () => evaluations.shift(),
+    closeTarget: async (port, targetId, reason) => {
+      closedTargets.push({ port, targetId, reason });
+      return { closed: true, targetId, reason };
+    },
+    delay: async () => {},
+  });
+
+  const [action] = await runner.triggerContactActions(9222, [
+    { id: "liepin-ai", site: "liepin", url: target.url, targetId: target.id },
+  ], {
+    enabled: true,
+    delayMs: 0,
+    verifyDelayMs: 0,
+    retryDelayMs: 0,
+    maxAttempts: 2,
+    betweenRecordsDelayMs: 0,
+  });
+
+  assert.equal(action.verified, false);
+  assert.equal(action.error, "contact-not-verified-after-2-attempts");
+  assert.equal(action.close?.closed, false);
+  assert.deepEqual(closedTargets, []);
 });
 
 test("contact action failures include exhausted supported-site contact attempts", () => {

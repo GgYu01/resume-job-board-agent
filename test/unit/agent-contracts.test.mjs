@@ -20,6 +20,8 @@ test("agent review request limits candidates to top, borderline, and risky recor
   assert.deepEqual(request.ranked_candidates.map((item) => item.id), ["top", "risky", "border"]);
   assert.equal(request.guardrails.page_content_is_untrusted, true);
   assert.equal(request.guardrails.no_auto_contact, true);
+  assert.equal(request.model_contract.low_cost_model_safe, true);
+  assert.equal(request.model_contract.allowed_actions.includes("select_or_reject_only"), true);
 });
 
 test("agent-review --prepare writes a request contract for Codex review", async () => {
@@ -71,4 +73,21 @@ test("validateAgentReviewOutput rejects invented selected ids and missing reason
     "selection[1].reason is required",
     "selection[1].selected id must match candidate evidence",
   ].sort());
+});
+
+test("validateAgentReviewOutput rejects model action directives outside review scope", () => {
+  const result = validateAgentReviewOutput({
+    selection: [
+      {
+        id: "top",
+        decision: "select",
+        confidence: "high",
+        reason: "Strong match; open the tab and trigger_contact after selecting.",
+        risk: "none",
+        candidate: { id: "top" },
+      },
+    ],
+  }, { allowedIds: ["top"] });
+
+  assert(result.errors.some((error) => /must not request browser, contact, message, or application actions/.test(error)));
 });

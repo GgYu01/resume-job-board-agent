@@ -207,15 +207,23 @@ user explicitly asks for a larger batch.
 
 If the user explicitly wants the site default communication flow, add
 `--trigger-contact`. After opening recognized BOSS/Liepin detail pages, the
-harness will try to click BOSS `立即沟通` / `继续沟通` or Liepin `聊一聊`; it does
-not type a custom message. Keep this opt-in because it can notify HR through
-the job site. Receipts include `verification.status`, `messageSent`,
+harness will try to click BOSS `立即沟通` / `继续沟通`, Liepin `聊一聊`, or
+conservative communication synonyms such as `在线沟通`; it does not type a
+custom message. Keep this opt-in because it can notify HR through the job site.
+Receipts include `preflight`, `verification.status`, `messageSent`, `close`,
 `contact_verified_count`, `contact_message_sent_count`, `contact_failed_count`,
 and `contactFailures`. Contact triggering is strict by default: a bare
 `继续沟通`/`已聊` marker is not enough after a click unless the page opens a chat
-URL/UI or the site marks a direct `立即沟通`/`聊一聊` send as contacted. Unverified
-supported-site contact attempts are retried and then make the command exit
-non-zero; pass `--allow-contact-failures` only for intentional inspection runs.
+URL/UI or the site marks a direct communication action as contacted.
+Unverified supported-site contact attempts are retried and then make the
+command exit non-zero; pass `--allow-contact-failures` only for intentional
+inspection runs.
+Before clicking, the harness also checks whether the page is already satisfied
+because the role has been contacted before. Those pre-existing conversation
+states are recorded as `noContactNeeded` and are eligible for cleanup. Pages are
+closed only after strict success or already-satisfied preflight; uncertain or
+failed contact pages stay open for user inspection. Pass `--keep-contact-pages`
+when an intentional inspection run should preserve resolved pages too.
 
 `open` runs the login-state gate by default. For detail-opening batches it uses
 the first selected detail URL for the auth probe, so BOSS does not leave

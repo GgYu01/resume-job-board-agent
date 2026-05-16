@@ -6,6 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { extractDetailFromHtml } from "../../src/extract/extract-detail.mjs";
+import { detectAccessLimited } from "../../src/extract/collect-links.mjs";
 import { loadRoleProfile } from "../../src/config/load-config.mjs";
 import { scoreRecord } from "../../src/rank/keyword-ranker.mjs";
 
@@ -32,6 +33,13 @@ test("extractDetailFromHtml parses core fields and keeps requirements as rank ev
   const score = scoreRecord({ id: "detail", ...detail }, { profile });
   assert(score.score > 40);
   assert(score.explain.matched.some((item) => item.term === "MCP"));
+});
+
+test("detail access-limit detection ignores ordinary login captcha widgets", () => {
+  const text = "AI Agent 全栈 立即沟通 登录BOSS直聘 发送验证码 扫码登录 BOSS 安全提示 请立即举报";
+
+  assert.equal(detectAccessLimited(text, "https://www.zhipin.com/job_detail/example.html"), false);
+  assert.equal(detectAccessLimited("安全验证 访问过于频繁 请完成验证码或滑块验证", "https://verify.zhipin.com/security"), true);
 });
 
 test("extract-details command enriches selection from fixtures without opening browser", () => {

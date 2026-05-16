@@ -13,6 +13,14 @@ export function contactActionLabels(site) {
   return [];
 }
 
+function contactTriggerLabels(site) {
+  const normalized = String(site || "").toLowerCase();
+  const primary = contactActionLabels(normalized);
+  if (normalized === "boss") return [...primary, "\u5728\u7ebf\u6c9f\u901a"];
+  if (normalized === "liepin") return [...primary, "\u5728\u7ebf\u6c9f\u901a", "\u7acb\u5373\u6c9f\u901a", "\u7ee7\u7eed\u6c9f\u901a"];
+  return primary;
+}
+
 function normalizeTextValue(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
@@ -35,8 +43,10 @@ export function contactVerificationOutcome(triggerResult, verification) {
   const conversationOpen = Boolean(verification?.conversationOpen);
   const messageSent = Boolean(verification?.messageSent);
   const alreadyContacted = Boolean(verification?.alreadyContacted);
-  const directSendLabel = label === compactTextValue("立即沟通") || label === compactTextValue("聊一聊");
   const continueLabel = label === compactTextValue("继续沟通");
+  const directSendLabel = contactTriggerLabels(site)
+    .map((item) => compactTextValue(item))
+    .includes(label) && !continueLabel;
   const verified = Boolean(
     messageSent ||
     conversationOpen ||
@@ -91,8 +101,125 @@ function contactPreferredClassTerms(site) {
   return [];
 }
 
+export function contactPageStateExpression(site) {
+  const siteLiteral = escapedJsonString(site);
+  return `(() => {
+    const marker = "__JOB_BOARD_CONTACT_PAGE_STATE__";
+    const site = String(${siteLiteral} || "").toLowerCase();
+    const norm = (value) => String(value || "")
+      .replace(/\\u00a0/g, " ")
+      .replace(/[ \\t\\r\\n]+/g, " ")
+      .trim();
+    const compact = (value) => norm(value).replace(/\\s+/g, "");
+    const isVisible = (el) => {
+      if (!el) return false;
+      const style = window.getComputedStyle ? window.getComputedStyle(el) : {};
+      const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 1 };
+      return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || 1) !== 0 &&
+        rect.width > 0 && rect.height > 0;
+    };
+    const textFor = (el) => norm([
+      el.innerText,
+      el.textContent,
+      el.value,
+      el.getAttribute?.("aria-label"),
+      el.getAttribute?.("title"),
+      el.getAttribute?.("placeholder"),
+    ].filter(Boolean).join(" "));
+    const labelMatch = (text, label) => {
+      const match = compact(text);
+      const wanted = compact(label);
+      return Boolean(match && wanted && (match === wanted || match.includes(wanted)));
+    };
+    const triggerLabels = site === "boss"
+      ? ["\\u7acb\\u5373\\u6c9f\\u901a", "\\u7ee7\\u7eed\\u6c9f\\u901a", "\\u5728\\u7ebf\\u6c9f\\u901a"]
+      : site === "liepin"
+        ? ["\\u804a\\u4e00\\u804a", "\\u7acb\\u5373\\u6c9f\\u901a", "\\u5728\\u7ebf\\u6c9f\\u901a", "\\u7ee7\\u7eed\\u6c9f\\u901a"]
+        : [];
+    const existingLabels = site === "boss"
+      ? ["\\u7ee7\\u7eed\\u6c9f\\u901a", "\\u5df2\\u6c9f\\u901a", "\\u6c9f\\u901a\\u8fc7", "\\u5df2\\u804a"]
+      : site === "liepin"
+        ? ["\\u5df2\\u804a", "\\u5df2\\u804a\\u8fc7", "\\u7ee7\\u7eed\\u6c9f\\u901a", "\\u6c9f\\u901a\\u8fc7", "\\u5df2\\u6c9f\\u901a"]
+        : [];
+    const elements = Array.from(document.querySelectorAll("button,a,[role='button'],div,span,textarea,input,[contenteditable='true']"));
+    const visibleItems = elements
+      .filter(isVisible)
+      .map((el) => ({
+        tag: String(el.tagName || "").toUpperCase(),
+        text: textFor(el),
+        role: String(el.getAttribute?.("role") || ""),
+        className: String(el.className || ""),
+        href: el.href || "",
+      }));
+    const visibleText = norm(visibleItems.map((item) => item.text).join(" "));
+    const classText = visibleItems.map((item) => item.className).join(" ");
+    const body = norm(document.body ? document.body.innerText : visibleText);
+    const url = location.href;
+    const actionable = (item) => /^(A|BUTTON)$/.test(item.tag) ||
+      item.role === "button" ||
+      /btn|button|chat|startchat|op-btn|main|operate/i.test(item.className);
+    const textBundle = (item) => [item.text, item.className, item.href].join(" ");
+    const matchingItems = (labels) => visibleItems.filter((item) =>
+      actionable(item) && labels.some((label) => labelMatch(textBundle(item), label))
+    );
+    const triggerItems = matchingItems(triggerLabels);
+    const existingItems = matchingItems(existingLabels);
+    const bossChatUrl = /zhipin\\.com\\/web\\/geek\\/(?:chat|message)|\\/chat/i.test(url);
+    const liepinChatUrl = /liepin\\.com\\/(?:message|im|chat)|\\/im\\//i.test(url);
+    const chatUrl = site === "boss" ? bossChatUrl : site === "liepin" ? liepinChatUrl : bossChatUrl || liepinChatUrl;
+    const chatUi = /zpchat|chat-modal|chat-list|message-list|chat-panel|chat-window|im-chat|im-session|im-message|im-ui-(?:chat|session|message)/i.test(classText) ||
+      visibleItems.some((item) => /^(TEXTAREA|INPUT)$/.test(item.tag) && /\\u53d1\\u9001|\\u56de\\u590d|\\u8f93\\u5165\\u6d88\\u606f|\\u6d88\\u606f\\u5185\\u5bb9|\\u6c9f\\u901a\\u5185\\u5bb9/.test(item.text));
+    const alreadyText = site === "boss"
+      ? /\\u7ee7\\u7eed\\u6c9f\\u901a|\\u5df2\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u804a/.test(visibleText)
+      : /\\u5df2\\u804a|\\u5df2\\u804a\\u8fc7|\\u7ee7\\u7eed\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u6c9f\\u901a/.test(visibleText);
+    const outgoingDefaultMessage = /(?:\\u60a8\\u597d|\\u4f60\\u597d|\\u6211).{0,30}(?:\\u804c\\u4f4d|\\u5c97\\u4f4d).{0,50}(?:\\u611f\\u5174\\u8da3|\\u6c9f\\u901a|\\u4e86\\u89e3)|(?:\\u5bf9|\\u6211\\u5bf9).{0,30}(?:\\u804c\\u4f4d|\\u5c97\\u4f4d).{0,30}\\u611f\\u5174\\u8da3/.test(body);
+    const messageSent = Boolean((chatUrl || chatUi) && outgoingDefaultMessage);
+    const conversationOpen = Boolean(chatUrl || chatUi);
+    const supported = ["boss", "liepin"].includes(site);
+    const alreadyContacted = Boolean(conversationOpen || existingItems.length);
+    const alreadySatisfied = Boolean(supported && (messageSent || conversationOpen || existingItems.length));
+    const shouldTrigger = Boolean(supported && !alreadySatisfied);
+    const signals = [];
+    if (chatUrl) signals.push("chat-url");
+    if (chatUi) signals.push("chat-ui");
+    if (messageSent) signals.push("outgoing-default-message-text");
+    if (existingItems.length) signals.push("existing-conversation-action");
+    if (alreadyText) signals.push("already-contacted-text");
+    if (triggerItems.length) signals.push("trigger-action-visible");
+    const status = messageSent
+      ? "sent"
+      : conversationOpen
+        ? "conversation-opened"
+        : alreadySatisfied
+          ? "existing-conversation-marker"
+          : triggerItems.length
+            ? "needs-trigger"
+            : supported
+              ? "trigger-not-visible"
+              : "unsupported-site";
+    return JSON.stringify({
+      marker,
+      supported,
+      verified: alreadySatisfied,
+      alreadySatisfied,
+      shouldTrigger,
+      triggerAvailable: triggerItems.length > 0,
+      triggerLabels,
+      existingLabels,
+      alreadyContacted,
+      messageSent,
+      conversationOpen,
+      status,
+      signals,
+      url,
+      title: document.title || "",
+      textSample: visibleText.slice(0, 500)
+    });
+  })()`;
+}
+
 export function contactTriggerExpression(site) {
-  const labels = contactActionLabels(site);
+  const labels = contactTriggerLabels(site);
   const labelsLiteral = `[${labels.map(escapedJsonString).join(",")}]`;
   const siteLiteral = escapedJsonString(site);
   const preferredClassTerms = contactPreferredClassTerms(site);
