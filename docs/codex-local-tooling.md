@@ -356,6 +356,11 @@ Current conclusion:
 - `open` and `open-batches` accept the opt-in `--trigger-contact` flag. It
   attempts BOSS `立即沟通` / `继续沟通` and Liepin `聊一聊` on opened detail pages
   to trigger the sites' default communication flow, without typing custom text.
+  Contact attempts now use slower defaults, strict post-click verification, and
+  retry before failing. A bare `继续沟通` marker no longer proves the click
+  triggered; `open` exits non-zero and `open-batches` pauses the queue when a
+  supported-site contact cannot be verified, unless `--allow-contact-failures`
+  is passed intentionally.
 - `feedback` appends regression metrics to
   `.tmp/job_board_harness/regression_metrics.jsonl`.
 - Keep the project-local skills under `skills/`: `job-board-page-opener`,
@@ -380,13 +385,34 @@ Current conclusion:
   `verification.status`, `messageSent`, `contact_verified_count`, and
   `contact_message_sent_count`. Use `contact_message_sent_count` as the
   conservative signal that a default message likely reached HR.
+
+### 2026-05-16 strict contact trigger update
+
+- `src/sites/contact-actions.mjs` separates "already/contact marker visible"
+  from "click actually triggered". `existing-conversation-marker` is evidence,
+  but it is not strict success for BOSS `继续沟通` unless a chat URL/UI opens.
+- `src/cli/runtime.mjs` now drives contact actions through a retrying runner:
+  default wait before contact is 2800 ms, verify wait is 3200 ms, retry wait is
+  2600 ms, max attempts is 3, and the pause between contact records is 1600 ms.
+- `open` and `open-batches --trigger-contact` record `contactFailures` and
+  `contact_failed_count`; failed supported-site contact verification exits with
+  code 4. `open-batches` also marks the batch failed and pauses the queue.
+- Tooling review: keep the current project CDP harness and local skills. No new
+  project-local skill, MCP server, or CLI helper is needed for this stricter
+  behavior.
 - Verified commands:
 
 ```powershell
 node --test test\unit\contact-actions.test.mjs
+node --test test\unit\*.test.mjs
 node --check src\sites\contact-actions.mjs
 node --check src\cli\runtime.mjs
+node tools\job_board_harness.mjs auth --site both --reuse-page
 ```
+
+- Read-only live CDP verification on port 9222 showed BOSS `/web/geek/chat`
+  verifies by `chat-url`, while the current Liepin homepage is now
+  `not-verified` despite its floating `im-ui-basic-entry` communication widget.
 
 - Tooling review: keep the project CDP harness and project-local skill as the
   primary workflow. No new MCP server or CLI helper is needed; generic browser

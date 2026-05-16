@@ -13,6 +13,77 @@ export function contactActionLabels(site) {
   return [];
 }
 
+function normalizeTextValue(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t\r\n]+/g, " ")
+    .trim();
+}
+
+function compactTextValue(value) {
+  return normalizeTextValue(value).replace(/\s+/g, "");
+}
+
+function normalizedSite(site) {
+  return String(site || "").toLowerCase();
+}
+
+export function contactVerificationOutcome(triggerResult, verification) {
+  const site = normalizedSite(triggerResult?.site || verification?.site || "");
+  const label = compactTextValue(triggerResult?.label || "");
+  const clicked = Boolean(triggerResult?.clicked);
+  const conversationOpen = Boolean(verification?.conversationOpen);
+  const messageSent = Boolean(verification?.messageSent);
+  const alreadyContacted = Boolean(verification?.alreadyContacted);
+  const directSendLabel = label === compactTextValue("立即沟通") || label === compactTextValue("聊一聊");
+  const continueLabel = label === compactTextValue("继续沟通");
+  const verified = Boolean(
+    messageSent ||
+    conversationOpen ||
+    (clicked && directSendLabel && alreadyContacted),
+  );
+  const inferredMessageSent = Boolean(
+    messageSent ||
+    (clicked && directSendLabel && alreadyContacted && !continueLabel),
+  );
+  let status = verification?.status || "not-verified";
+  if (!verified && status !== "not-verified" && status !== "verification-target-not-found") {
+    status = `${status}-not-triggered`;
+  }
+  return {
+    site,
+    verified,
+    messageSent: inferredMessageSent,
+    conversationOpen,
+    alreadyContacted,
+    status,
+    strictReason: verified
+      ? "strict-contact-verified"
+      : continueLabel && alreadyContacted
+        ? "continue-button-marker-without-open-chat"
+        : "contact-not-strictly-verified",
+  };
+}
+
+export function contactActionFailures(actions) {
+  return (actions || []).filter((action) => {
+    const site = normalizedSite(action?.site);
+    if (!["boss", "liepin"].includes(site)) return false;
+    if (action?.supported === false) return false;
+    return !action?.verified;
+  });
+}
+
+export function contactFailureReason(failures) {
+  const count = (failures || []).length;
+  if (!count) return "";
+  const samples = failures
+    .slice(0, 3)
+    .map((item) => `${item.site || "unknown"}:${item.id || item.title || item.url || item.targetId || "record"}`)
+    .join(", ");
+  return `contact-trigger-failed:${count}${samples ? ` (${samples})` : ""}`;
+}
+
 function contactPreferredClassTerms(site) {
   const normalized = String(site || "").toLowerCase();
   if (normalized === "boss") return ["btn-startchat", "startchat"];
@@ -133,7 +204,7 @@ export function contactTriggerExpression(site) {
         targetTag: tagFor(selected.target),
         targetClass: classFor(selected.target),
         score: selected.score,
-        preContactState: site === "boss" && compact(selected.label) === compact("继续沟通") ? "existing-conversation" : "unknown",
+        preContactState: site === "boss" && compact(selected.label) === compact("继续沟通") ? "existing-conversation-marker" : "unknown",
         url: selected.doc.location?.href || location.href,
         title: selected.doc.title || document.title || ""
       });
@@ -192,10 +263,10 @@ export function contactVerificationExpression(site) {
     const bossChatUrl = /zhipin\\.com\\/web\\/geek\\/(?:chat|message)|\\/chat/i.test(url);
     const liepinChatUrl = /liepin\\.com\\/(?:message|im|chat)|\\/im\\//i.test(url);
     const chatUrl = site === "boss" ? bossChatUrl : site === "liepin" ? liepinChatUrl : bossChatUrl || liepinChatUrl;
-    const chatUi = /im-ui|zpchat|chat-modal|chat-list|message-list|conversation|dialog/i.test(classText) ||
-      visibleItems.some((item) => /^(TEXTAREA|INPUT)$/.test(item.tag) && /发送|回复|聊|消息|请输入|沟通/i.test(item.text));
+    const chatUi = /zpchat|chat-modal|chat-list|message-list|chat-panel|chat-window|im-chat|im-session|im-message|im-ui-(?:chat|session|message)/i.test(classText) ||
+      visibleItems.some((item) => /^(TEXTAREA|INPUT)$/.test(item.tag) && /发送|回复|输入消息|请输入.{0,12}消息|消息内容|沟通内容/i.test(item.text));
     const alreadyContacted = site === "boss"
-      ? /继续沟通|沟通过/.test(visibleText)
+      ? /继续沟通|沟通过|已沟通/.test(visibleText)
       : /已聊|继续沟通|沟通过|已沟通/.test(visibleText);
     const outgoingDefaultMessage = /(?:您好|你好|我).{0,30}(?:职位|岗位).{0,50}(?:感兴趣|沟通|了解)|(?:对|我对).{0,30}(?:职位|岗位).{0,30}感兴趣/.test(body);
     const messageSent = Boolean((chatUrl || chatUi) && outgoingDefaultMessage);
@@ -207,14 +278,14 @@ export function contactVerificationExpression(site) {
     if (outgoingDefaultMessage) signals.push("outgoing-default-message-text");
     const status = messageSent
       ? "sent"
-      : alreadyContacted
-          ? "existing-conversation"
-          : conversationOpen
-            ? "conversation-opened"
-            : "not-verified";
+      : conversationOpen
+        ? "conversation-opened"
+        : alreadyContacted
+          ? "existing-conversation-marker"
+          : "not-verified";
     return JSON.stringify({
       supported: ["boss", "liepin"].includes(String(site || "").toLowerCase()),
-      verified: status !== "not-verified",
+      verified: messageSent || conversationOpen,
       status,
       messageSent,
       conversationOpen,

@@ -4,9 +4,11 @@ import vm from "node:vm";
 
 import {
   contactActionLabels,
+  contactActionFailures,
   contactTriggerExpression,
   contactVerificationExpression,
 } from "../../src/sites/contact-actions.mjs";
+import { createContactActionRunner } from "../../src/cli/runtime.mjs";
 
 class FakeElement {
   constructor({ tag = "div", text = "", className = "", attrs = {}, visible = true, parent = null } = {}) {
@@ -49,6 +51,9 @@ function matchesSelector(el, selector) {
     if (part === "a") return el.tagName === "A";
     if (part === "div") return el.tagName === "DIV";
     if (part === "span") return el.tagName === "SPAN";
+    if (part === "textarea") return el.tagName === "TEXTAREA";
+    if (part === "input") return el.tagName === "INPUT";
+    if (part === "[contenteditable='true']" || part === "[contenteditable=true]") return el.getAttribute("contenteditable") === "true";
     if (part === "[role='button']" || part === "[role=button]") return el.getAttribute("role") === "button";
     if (part.startsWith(".")) return String(el.className || "").split(/\s+/).includes(part.slice(1));
     return false;
@@ -124,7 +129,7 @@ test("contact trigger expression clicks Liepin detail-page chat buttons", () => 
   assert.equal(operate.clicked, 0);
 });
 
-test("contact verification expression reports existing BOSS conversation state", () => {
+test("contact verification expression does not treat a bare BOSS continue button as triggered", () => {
   const startChat = new FakeElement({ tag: "a", className: "btn btn-startchat", text: "继续沟通" });
 
   const result = runBrowserExpression(contactVerificationExpression("boss"), [startChat], {
@@ -132,9 +137,23 @@ test("contact verification expression reports existing BOSS conversation state",
     title: "BOSS detail",
   });
 
-  assert.equal(result.verified, true);
-  assert.equal(result.status, "existing-conversation");
+  assert.equal(result.verified, false);
+  assert.equal(result.status, "existing-conversation-marker");
   assert.equal(result.alreadyContacted, true);
+});
+
+test("contact verification expression treats an opened BOSS chat UI as verified", () => {
+  const chatShell = new FakeElement({ className: "zpchat chat-modal", text: "沟通 请输入消息" });
+  const input = new FakeElement({ tag: "textarea", className: "chat-input", attrs: { placeholder: "请输入消息" }, parent: chatShell });
+
+  const result = runBrowserExpression(contactVerificationExpression("boss"), [chatShell, input], {
+    url: "https://www.zhipin.com/job_detail/example.html",
+    title: "BOSS detail",
+  });
+
+  assert.equal(result.verified, true);
+  assert.equal(result.status, "conversation-opened");
+  assert.equal(result.conversationOpen, true);
 });
 
 test("contact verification expression does not treat a bare Liepin chat button as sent", () => {
@@ -148,4 +167,64 @@ test("contact verification expression does not treat a bare Liepin chat button a
   assert.equal(result.verified, false);
   assert.equal(result.status, "not-verified");
   assert.equal(result.messageSent, false);
+});
+
+test("contact verification expression does not treat generic homepage dialog classes as chat", () => {
+  const shell = new FakeElement({ className: "conversation dialog", text: "推荐 职位 搜索 消息" });
+  const floatingEntry = new FakeElement({ className: "im-ui-basic-entry im-ui-basic-entry-c", text: "我的沟通" });
+
+  const result = runBrowserExpression(contactVerificationExpression("liepin"), [shell, floatingEntry], {
+    url: "https://c.liepin.com/",
+    title: "我的首页_猎聘",
+  });
+
+  assert.equal(result.verified, false);
+  assert.equal(result.status, "not-verified");
+  assert.equal(result.conversationOpen, false);
+});
+
+test("contact action runner retries when a clicked BOSS continue button is not strictly verified", async () => {
+  const target = {
+    id: "boss-detail",
+    type: "page",
+    url: "https://www.zhipin.com/job_detail/example.html",
+    webSocketDebuggerUrl: "ws://example",
+  };
+  const evaluations = [
+    { clicked: true, label: "继续沟通", targetText: "继续沟通" },
+    { verified: true, status: "existing-conversation-marker", alreadyContacted: true, conversationOpen: false, messageSent: false },
+    { clicked: true, label: "继续沟通", targetText: "继续沟通" },
+    { verified: true, status: "conversation-opened", alreadyContacted: true, conversationOpen: true, messageSent: false },
+  ];
+  const runner = createContactActionRunner({
+    listTargets: async () => [target],
+    evaluateTarget: async () => evaluations.shift(),
+    delay: async () => {},
+  });
+
+  const [action] = await runner.triggerContactActions(9222, [
+    { id: "boss-ai", site: "boss", url: target.url, targetId: target.id },
+  ], {
+    enabled: true,
+    delayMs: 0,
+    verifyDelayMs: 0,
+    retryDelayMs: 0,
+    maxAttempts: 2,
+    betweenRecordsDelayMs: 0,
+  });
+
+  assert.equal(action.verified, true);
+  assert.equal(action.attemptCount, 2);
+  assert.equal(action.attempts[0].verified, false);
+  assert.equal(action.verification.status, "conversation-opened");
+});
+
+test("contact action failures include exhausted supported-site contact attempts", () => {
+  const failures = contactActionFailures([
+    { id: "boss-a", site: "boss", attempted: true, clicked: false, verified: false, error: "contact-not-verified-after-2-attempts" },
+    { id: "51job-a", site: "51job", attempted: false, clicked: false, verified: false },
+  ]);
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].id, "boss-a");
 });
