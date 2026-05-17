@@ -27,6 +27,10 @@ execution.
    If the user provides a BOSS/Liepin search URL, collect can open it as a CDP
    background tab first:
    `.\tools\job-board.cmd collect --site liepin --url "<search url>"`
+   Normal collect is seed-target/search-list scoped. It does not scrape
+   detail-page recommendation sections unless `--include-recommendations` is
+   explicitly requested. Review `meta.pages[].collectionReason` and
+   `meta.skippedTargets[]` when debugging candidate quality.
 5. Rank against the resume and current requirement:
    `.\tools\job-board.cmd rank --input <candidates.json> --profile ai-agent-dev --resume 求职简历.docx`
    If Chinese text is garbled through `cmd.exe`, run the same command with the
@@ -68,7 +72,10 @@ execution.
    `contact_verified_count`, and `contact_message_sent_count`; use
    `contact_message_sent_count` when the user asks whether a default message
    likely reached HR. Keep this opt-in because it can notify HR through the
-   site.
+   site. When `--trigger-contact` is used with `--input`, the input must come
+   from `agent-review`/`select` and include review, score, and explain evidence.
+   Direct `--url` is the one-off explicit user-target path. Use
+   `--allow-unaudited-contact` only after a separate manual review.
 8. To summarize contacts that exchanged WeChat/contact details or look likely
    to continue into interview scheduling, open the relevant BOSS/Liepin chat or
    message pages in the Edge Beta profile and run:
@@ -89,6 +96,9 @@ execution.
   rerun `auth`.
 - Use `--skip-auth-check` only when the user explicitly accepts opening or
   summarizing without a fresh login-state gate.
+- Use `--include-recommendations` only when the task explicitly asks to mine
+  recommendations from already-open detail pages. Do not let stale detail tabs
+  silently enter normal collection.
 - Use the CLI `open` command for detail pages. Do not use `Start-Process`,
   `msedge --new-window`, or generic shell URL opening.
 - Do not pass BOSS/Liepin search/list pages to `open` unless the user explicitly

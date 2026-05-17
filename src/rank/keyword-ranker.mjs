@@ -84,8 +84,22 @@ function optionalNumericLimit(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function stringList(value) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+}
+
 function hardFilter(record, text, filters = {}) {
   const reasons = [];
+  const rejectTerms = stringList(filters.reject_terms);
+  for (const term of rejectTerms) {
+    if (includesTerm(text, term)) reasons.push(`reject-term:${term}`);
+  }
+  const requiredAnyTerms = stringList(filters.required_any_terms);
+  if (requiredAnyTerms.length && !requiredAnyTerms.some((term) => includesTerm(text, term))) {
+    reasons.push(`missing-required-any:${requiredAnyTerms.join("|")}`);
+  }
   if (filters.reject_internship !== false && includesTerm(text, "实习")) reasons.push("internship");
   if (filters.reject_part_time !== false && includesTerm(text, "兼职")) reasons.push("part-time");
   const cities = Array.isArray(filters.cities) ? filters.cities.filter(Boolean) : [];

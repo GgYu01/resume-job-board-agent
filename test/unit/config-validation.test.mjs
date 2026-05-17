@@ -16,6 +16,8 @@ test("typed role profile schema validates current durable profiles", async () =>
     hard_filters: {
       min_salary: null,
       cities: [],
+      required_any_terms: ["AI Agent", "智能体"],
+      reject_terms: ["销售", "金融"],
       reject_internship: true,
       reject_part_time: true,
     },
@@ -45,6 +47,8 @@ test("validateRoleProfile rejects invalid batch, review, and hard-filter shapes"
     must_have: [{ term: "Linux", weight: 10 }],
     hard_filters: {
       cities: "深圳",
+      required_any_terms: "AI Agent",
+      reject_terms: [""],
       reject_internship: "yes",
     },
     review_policy: {
@@ -67,6 +71,8 @@ test("validateRoleProfile rejects invalid batch, review, and hard-filter shapes"
     "batch_policy.max_per_batch must be an integer between 1 and 20",
     "batch_policy.stop_on_access_limited must be boolean",
     "hard_filters.cities must be a list",
+    "hard_filters.reject_terms[0] must be a non-empty string",
+    "hard_filters.required_any_terms must be a list",
     "hard_filters.reject_internship must be boolean",
     "review_policy.allow_uncertain must be boolean",
     "review_policy.codex_review_borderline_n must be a positive integer",
@@ -86,6 +92,8 @@ test("validateRoleProfile accepts the durable profile policy shape", () => {
     hard_filters: {
       min_salary: null,
       cities: [],
+      required_any_terms: ["AI Agent", "智能体"],
+      reject_terms: ["销售", "金融"],
       reject_internship: true,
       reject_part_time: true,
     },

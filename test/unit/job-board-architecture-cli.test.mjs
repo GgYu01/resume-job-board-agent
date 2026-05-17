@@ -197,6 +197,51 @@ test("open-batches dry-run creates a resumable queue without opening the browser
   assert.equal(queue.jitter_ms, 10000);
 });
 
+test("open-batches trigger-contact refuses unaudited selection input", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_contact_audit_"));
+  const env = { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir };
+  const input = path.join(stateDir, "manual_selection.json");
+  const queueFile = path.join(stateDir, "queue.json");
+  fs.writeFileSync(
+    input,
+    `${JSON.stringify(
+      {
+        selected: [
+          {
+            id: "manual-no-review",
+            site: "boss",
+            title: "金融量化编程师 Python Pine",
+            url: "https://www.zhipin.com/job_detail/manual.html?securityId=sec",
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const failed = spawnSync(process.execPath, [
+    HARNESS,
+    "open-batches",
+    "--input",
+    input,
+    "--queue",
+    queueFile,
+    "--trigger-contact",
+    "--dry-run",
+    "--allow-previous",
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env,
+  });
+
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /unaudited contact input/i);
+  assert.equal(fs.existsSync(queueFile), false);
+});
+
 test("select drops duplicate and previously opened semantic jobs", () => {
   const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_select_dedupe_"));
   const reviewFile = path.join(stateDir, "review.json");

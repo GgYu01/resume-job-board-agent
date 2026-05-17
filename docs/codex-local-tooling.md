@@ -342,6 +342,10 @@ Current conclusion:
 - `src/extract/collect-links.mjs`, `src/sites/boss.mjs`, and
   `src/sites/liepin.mjs`, `src/sites/job51.mjs`, and `src/sites/registry.mjs`
   are the site-adapter/fixture extraction pieces.
+- `src/cli/collect-targets.mjs` owns collection target classification. Normal
+  collection is seed-target/search-list only; detail-page recommendation
+  scraping requires `--include-recommendations`, and `meta.skippedTargets`
+  records skipped tabs for later audit.
 - `src/extract/extract-detail.mjs` and `extract-details` add the optional detail
   summary pass for Phase 3.
 - `src/config/profile-patch.mjs`, `feedback --suggest-profile-patch`,
@@ -367,6 +371,10 @@ Current conclusion:
   triggered; `open` exits non-zero and `open-batches` pauses the queue when a
   supported-site contact cannot be verified, unless `--allow-contact-failures`
   is passed intentionally.
+- `--trigger-contact` with `--input` now requires records produced through
+  `agent-review`/`select` with review, score, and explain evidence. Direct
+  `--url` remains the explicit one-off path; `--allow-unaudited-contact` is the
+  manual override for reviewed exceptional cases.
 - `feedback` appends regression metrics to
   `.tmp/job_board_harness/regression_metrics.jsonl`.
 - Keep the project-local skills under `skills/`: `job-board-page-opener`,
@@ -441,3 +449,41 @@ node tools\job_board_harness.mjs auth --site both --reuse-page
 - Tooling review: keep the project CDP harness and project-local skill as the
   primary workflow. No new MCP server or CLI helper is needed; generic browser
   MCPs still do not own the durable BOSS/Liepin login profile.
+
+### 2026-05-17 suspect dedup recheck policy
+
+- User reported that long-running local dedup mistakes may have caused some
+  jobs to be skipped before real HR communication. For future BOSS/Liepin job
+  application tasks in this workspace, do not use the opened ledger as final
+  evidence of delivery.
+- Keep `.tmp/job_board_harness/opened_ids.txt`, `opened_urls.txt`, and
+  `opened_keys.txt` as historical state, but for requested recheck runs use
+  `open-batches --allow-previous --trigger-contact --allow-contact-failures`
+  so details are opened again and the site page decides whether the role was
+  already contacted.
+- Count success from receipt verification fields only. `alreadySatisfied`,
+  `alreadyContacted`, or `noContactNeeded` means the site says the role was
+  already communicated with and the run should continue to later candidates.
+  `contact_verified_count` / `contact_message_sent_count` are the strict
+  progress signals; `contact_failed_count` is not success.
+- Because already-contacted pages no longer satisfy a new-target count, select
+  a larger candidate buffer than the user asks for and keep advancing through
+  the queue until the requested number of newly verified contacts is reached or
+  a platform login/access/daily-limit block stops the run.
+
+### 2026-05-17 job quality hardening update
+
+- Root cause evidence from `.tmp/job_board_harness/candidates_20260517_191206.json`
+  showed `collect --url` evaluating unrelated same-host tabs, including generic
+  BOSS search pages, because host matching was too broad. Default collection is
+  now seed-target/search-list scoped and records skipped targets.
+- `configs/roles/ai-agent-dev.yaml` now uses `hard_filters.required_any_terms`
+  and `hard_filters.reject_terms` so weak matches such as generic Python,
+  financial/loan roles, sales, customer service, assistant, clerk, operator,
+  and testing-assistant jobs are hard-rejected with auditable reasons.
+- Rank reports now print hard-filter and penalty samples in the typical skip
+  section, making false positives easier to debug after a run.
+- Tooling review: keep the existing project CDP harness and project-local
+  skills. No new MCP server is needed; a future model-backed semantic reviewer
+  should consume `agent-review --prepare` / `--review-output` rather than
+  bypassing deterministic guards.

@@ -87,9 +87,12 @@ Or let the harness open a search/list URL as a background tab first:
 .\tools\job-board.cmd collect --site liepin --url "https://www.liepin.com/zhaopin/?key=K8S"
 ```
 
-Use `--site liepin` or `--site boss` for one site. Use `--all-tabs` only when
-the browser has unrelated pages and the agent intentionally wants to inspect all
-open tabs.
+Use `--site liepin` or `--site boss` for one site. Normal collection now
+inspects only the seed target created by `--url`, or search/list tabs when no
+seed URL is supplied. It does not scrape detail-page recommendation sections by
+default. Pass `--include-recommendations` only when the task explicitly wants to
+mine related jobs from already-open detail pages. Use `--all-tabs` only when the
+agent intentionally wants every matching browser tab inspected.
 
 51job is available as a site adapter for URL canonicalization, fixtures, and
 targeted collection:
@@ -99,7 +102,9 @@ targeted collection:
 ```
 
 `collect` runs the login-state gate by default. Use `--skip-auth-check` only for
-a deliberate manual exception.
+a deliberate manual exception. Candidate JSON includes `meta.pages[].collectionReason`
+and `meta.skippedTargets[]` so later audits can see whether data came from a
+seeded URL, search/list tab, explicit recommendations, or was skipped.
 
 The output is written under `.tmp/job_board_harness/candidates_*.json`.
 
@@ -156,8 +161,9 @@ When `--profile` is supplied, ranking uses the durable profile terms by default
 and does not add the built-in demo terms. Set
 `ranking_policy.use_default_terms: true` only when a profile intentionally wants
 that fallback behavior. Hard filters can reject internship, part-time, city
-mismatch, parseable salary below `min_salary`, and stated experience above
-`max_experience_years`.
+mismatch, parseable salary below `min_salary`, stated experience above
+`max_experience_years`, explicit `reject_terms`, and records missing every term
+in `required_any_terms`.
 
 If card text is too thin, run an optional detail extraction pass before final
 review:
@@ -218,6 +224,11 @@ URL/UI or the site marks a direct communication action as contacted.
 Unverified supported-site contact attempts are retried and then make the
 command exit non-zero; pass `--allow-contact-failures` only for intentional
 inspection runs.
+When `--trigger-contact` is used with `--input`, records must come from
+`agent-review`/`select` and carry review, score, and explain evidence. This
+blocks manually assembled selection files from contacting low-quality jobs.
+Direct `--url` remains allowed for an explicit one-off user target. Use
+`--allow-unaudited-contact` only after a separate manual review.
 Before clicking, the harness also checks whether the page is already satisfied
 because the role has been contacted before. Those pre-existing conversation
 states are recorded as `noContactNeeded` and are eligible for cleanup. Pages are
@@ -289,6 +300,34 @@ Show counts:
 ```
 
 Pass `--allow-previous` only when the user intentionally wants to reopen pages.
+
+### Recheck Mode For Suspect Local Dedup
+
+When the user says earlier local records may have incorrectly skipped jobs, do
+not treat `.tmp/job_board_harness/opened_*.txt` as proof that HR communication
+already happened. Keep those files as history, but run the next live opening as
+a recheck:
+
+```powershell
+.\tools\job-board.cmd open-batches --input <selection.json> --allow-previous --max-per-batch 10 --cooldown 45s --jitter 10s --trigger-contact --allow-contact-failures
+```
+
+If the queue pauses and the user clears login or verification, resume with the
+same contact and recheck intent:
+
+```powershell
+.\tools\job-board.cmd open-batches --resume --queue .tmp\job_board_harness\open_queue.json --allow-previous --trigger-contact --allow-contact-failures
+```
+
+In this mode, collect and rank as if starting fresh, then over-select a buffer
+larger than the requested success count because pages already contacted on the
+site must not count as new successful communication. After each batch, use the
+receipt fields instead of the open ledger: count strict new progress from
+`contact_verified_count` / `contact_message_sent_count`; treat `noContactNeeded`
+or `alreadySatisfied` as "already communicated, continue to the next job"; and
+treat `contact_failed_count` as not successful unless the receipt shows strict
+verification. Stop using a site only when the live page or harness reports a
+clear login/user-action block or daily/access limit for that site.
 
 ## Feedback And Metrics
 

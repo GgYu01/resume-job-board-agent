@@ -90,6 +90,18 @@ export function loadBatchPolicy(root) {
 export function validateRoleProfile(profile) {
   const errors = [];
   const warnings = [];
+  const validateStringList = (value, key) => {
+    if (value === undefined) return;
+    if (!Array.isArray(value)) {
+      errors.push(`hard_filters.${key} must be a list`);
+      return;
+    }
+    value.forEach((item, index) => {
+      if (typeof item !== "string" || !item.trim()) {
+        errors.push(`hard_filters.${key}[${index}] must be a non-empty string`);
+      }
+    });
+  };
   if (!profile || typeof profile !== "object") errors.push("profile must be a map");
   if (!profile.id) errors.push("id is required");
   if (!profile.label) warnings.push("label is recommended");
@@ -120,6 +132,8 @@ export function validateRoleProfile(profile) {
       if (filters.max_experience_years !== undefined && filters.max_experience_years !== null && !Number.isFinite(Number(filters.max_experience_years))) {
         errors.push("hard_filters.max_experience_years must be numeric or null");
       }
+      validateStringList(filters.required_any_terms, "required_any_terms");
+      validateStringList(filters.reject_terms, "reject_terms");
     }
   }
 

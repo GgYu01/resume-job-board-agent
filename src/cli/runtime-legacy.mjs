@@ -51,6 +51,7 @@ import {
 } from "../agent/prompt-contracts.mjs";
 import { extractJobCardsFromHtml } from "../extract/collect-links.mjs";
 import { extractDetailFromHtml } from "../extract/extract-detail.mjs";
+import { classifyCollectTargets } from "./collect-targets.mjs";
 import { appendRegressionMetrics, computeRegressionMetrics } from "../metrics/regression.mjs";
 import { redactSensitiveEvidence as redactSensitiveEvidenceCore } from "../privacy/redact.mjs";
 import {
@@ -1433,6 +1434,8 @@ function writeRankArtifacts(outputFile, selected, ranked, rejected, meta) {
   rejected.slice(0, 50).forEach((item, index) => {
     lines.push(`${index + 1}. ${item.title || firstUsefulLine(item)} | score=${item.score} | ${item.skipReason || ""}`);
     if (item.url) lines.push(`   ${item.url}`);
+    if (item.hardRejected?.length) lines.push(`   hard-filter: ${item.hardRejected.join(", ")}`);
+    if (item.penalties?.length) lines.push(`   penalty: ${item.penalties.join(", ")}`);
   });
   fs.writeFileSync(reportFile, `${lines.join("\n")}\n`, "utf8");
   return { outputFile, urlsFile, reportFile };
@@ -1551,13 +1554,6 @@ async function cmdCollect(args) {
       fresh: !boolOption(args, "reuse-auth-page"),
     });
   }
-  const seedHosts = seedUrls.map((url) => {
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return "";
-    }
-  }).filter(Boolean);
   let seeded = [];
   if (seedUrls.length) {
     const delayMs = Math.max(0, Number(option(args, "delay-ms", "1200")) || 0);
@@ -1568,18 +1564,29 @@ async function cmdCollect(args) {
     )).opened;
     await new Promise((resolve) => setTimeout(resolve, 1800));
   }
-  const targets = (await listTargets(hit.port)).filter((target) => {
-    if (target.type !== "page" || !target.webSocketDebuggerUrl) return false;
-    if (boolOption(args, "all-tabs")) return true;
-    if (seedUrls.length && (seedUrls.some((url) => target.url === url || target.url.startsWith(url)) || seedHosts.some((host) => includesTerm(target.url, host)))) {
-      return true;
-    }
-    return siteMatches(target.url, site);
+  const classification = classifyCollectTargets(await listTargets(hit.port), {
+    site,
+    seedUrls,
+    seeded,
+    allTabs: boolOption(args, "all-tabs"),
+    includeRecommendations: boolOption(args, "include-recommendations"),
   });
+  const targets = classification.selected;
   const contains = splitTerms(values(args, "target-url-contains"));
   const filteredTargets = contains.length
     ? targets.filter((target) => contains.some((term) => includesTerm(target.url, term)))
     : targets;
+  const skippedTargets = [
+    ...classification.skipped,
+    ...targets
+      .filter((target) => !filteredTargets.includes(target))
+      .map((target) => ({
+        id: target.id || "",
+        title: target.title || "",
+        url: target.url || "",
+        reason: "target-url-filtered",
+      })),
+  ];
 
   const expression = extractionExpression(site);
   const pages = [];
@@ -1588,7 +1595,14 @@ async function cmdCollect(args) {
   for (const target of filteredTargets) {
     try {
       const data = await evaluateTarget(target, expression);
-      pages.push({ title: data.title, url: data.url, count: data.items?.length || 0, accessLimited: data.accessLimited });
+      pages.push({
+        targetId: target.id,
+        collectionReason: target.collectionReason,
+        title: data.title,
+        url: data.url,
+        count: data.items?.length || 0,
+        accessLimited: data.accessLimited,
+      });
       if (data.accessLimited) warnings.push(`Access limitation detected on ${data.url}`);
       for (const item of data.items || []) {
         const key = recordKey(item);
@@ -1602,7 +1616,7 @@ async function cmdCollect(args) {
   const items = Array.from(itemsByKey.values());
   const output = path.resolve(ROOT, option(args, "out", path.join(STATE_DIR, `candidates_${timestamp()}.json`)));
   const payload = {
-    meta: { createdAt: new Date().toISOString(), cdpPort: hit.port, site, seeded, pages, warnings },
+    meta: { createdAt: new Date().toISOString(), cdpPort: hit.port, site, seeded, pages, skippedTargets, warnings },
     items,
   };
   writeJson(output, payload);
@@ -2824,6 +2838,29 @@ function contactActionOptionsFromArgs(args) {
   };
 }
 
+function hasContactAuditEvidence(record) {
+  const review = record?.review && typeof record.review === "object" ? record.review : null;
+  const explain = record?.explain && typeof record.explain === "object" ? record.explain : null;
+  const hasReview = review?.decision === "select" && Boolean(review.reason || review.risk);
+  const hasRank = Number.isFinite(Number(record?.score))
+    && (
+      Array.isArray(explain?.matched)
+      || Array.isArray(explain?.hard_filters)
+      || Array.isArray(record?.reasons)
+    );
+  return hasReview && hasRank;
+}
+
+function assertAuditedContactRecords(records, args) {
+  if (!boolOption(args, "trigger-contact") || boolOption(args, "allow-unaudited-contact")) return;
+  const bad = (records || []).filter((record) => !record.__directUserUrl && !hasContactAuditEvidence(record));
+  if (!bad.length) return;
+  const sample = bad.slice(0, 5).map((record) => record.id || record.url || "(missing id)").join(", ");
+  throw new Error(
+    `Unaudited contact input: --trigger-contact with --input requires records produced by agent-review/select with review, score, and explain evidence. Bad records: ${sample}. Pass --allow-unaudited-contact only after explicit manual review.`,
+  );
+}
+
 async function cmdOpenBatches(args) {
   ensureStateDir();
   const queueFile = resolveQueueFile(args);
@@ -2847,13 +2884,14 @@ async function cmdOpenBatches(args) {
     const urlArgs = values(args, "url");
     let rawRecords = [];
     if (input) rawRecords = loadRecords(input);
-    rawRecords.push(...urlArgs.map((url) => ({ url })));
+    rawRecords.push(...urlArgs.map((url) => ({ url, __directUserUrl: true })));
     const normalized = normalizeOpenRecords(rawRecords, {
       allowNonDetail: boolOption(args, "allow-non-detail"),
     });
     let records = normalized.records.filter((record) => record.url);
     rejected = [...normalized.rejected];
     records = filterOpenRecords(records, rejected, { allowPrevious: boolOption(args, "allow-previous") });
+    assertAuditedContactRecords(records, args);
     queue = createOpenQueue(records, {
       max_per_batch: policy.maxPerBatch,
       cooldown_ms: policy.cooldownMs,
@@ -2866,6 +2904,7 @@ async function cmdOpenBatches(args) {
   queue.cooldown_ms = policy.cooldownMs;
   queue.jitter_ms = policy.jitterMs;
   queue.stop_on_access_limited = policy.stopOnAccessLimited;
+  assertAuditedContactRecords((queue.items || []).filter((item) => item.status === "pending").map((item) => item.record), args);
   saveQueue(queueFile, queue);
 
   const maxBatchesRaw = option(args, "max-batches", option(args, "batches", null));
@@ -2999,13 +3038,14 @@ async function cmdOpen(args) {
   const urlArgs = values(args, "url");
   let rawRecords = [];
   if (input) rawRecords = loadRecords(input);
-  rawRecords.push(...urlArgs.map((url) => ({ url })));
+  rawRecords.push(...urlArgs.map((url) => ({ url, __directUserUrl: true })));
   const normalized = normalizeOpenRecords(rawRecords, {
     allowNonDetail: boolOption(args, "allow-non-detail"),
   });
   let records = normalized.records.filter((record) => record.url);
   const rejected = [...normalized.rejected];
   records = filterOpenRecords(records, rejected, { allowPrevious: boolOption(args, "allow-previous") });
+  assertAuditedContactRecords(records, args);
   const maxBatch = intOption(args, "max-per-batch", DEFAULT_MAX_BATCH);
   if (records.length > maxBatch && !boolOption(args, "confirm-large")) {
     throw new Error(
@@ -3521,6 +3561,7 @@ Common options:
   --open-login            For auth: open login/check pages when auth is not ready
   --skip-auth-check       For collect/open/summarize-contacts: bypass login-state gate intentionally
   --url search-url        For collect: open a search/list URL as a background tab first
+  --include-recommendations For collect: explicitly scrape detail-page recommendation links
   --all-tabs
   --profile ai-agent-dev
   --prepare               For agent-review: write Codex review request contract
@@ -3545,6 +3586,7 @@ Common options:
   --contact-between-records-ms 1600 Slow down between contact actions in one batch
   --keep-contact-pages Keep resolved contact/detail pages open for inspection; uncertain pages are always kept open
   --allow-contact-failures Keep going even when --trigger-contact cannot verify a supported BOSS/Liepin contact
+  --allow-unaudited-contact Allow --trigger-contact from manually assembled input after explicit review
   --resume                For open-batches: continue the saved queue
   --draft                 For profile init: write draft instead of durable config
   --reason "..."          For profile freeze/feedback history
