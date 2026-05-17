@@ -131,6 +131,22 @@ test("contact trigger expression clicks Liepin detail-page chat buttons", () => 
   assert.equal(operate.clicked, 0);
 });
 
+test("contact trigger expression does not click Liepin recommended job list chat buttons", () => {
+  const detail = new FakeElement({ className: "job-detail", text: "AI application engineer 20-35k Hefei" });
+  const recommendedList = new FakeElement({ className: "job-list", text: "recommended jobs chat" });
+  const recommendedChat = new FakeElement({ tag: "span", text: "\u804a\u4e00\u804a", parent: recommendedList });
+
+  const result = runBrowserExpression(contactTriggerExpression("liepin"), [detail, recommendedList, recommendedChat], {
+    url: "https://www.liepin.com/a/75167089.shtml",
+    title: "Liepin detail",
+  });
+
+  assert.equal(result.clicked, false);
+  assert.equal(result.reason, "button-not-found");
+  assert.equal(recommendedList.clicked, 0);
+  assert.equal(recommendedChat.clicked, 0);
+});
+
 test("contact trigger expression clicks conservative communication synonyms", () => {
   const operate = new FakeElement({ className: "job-apply-operate", text: "\u5728\u7ebf\u6c9f\u901a" });
   const chat = new FakeElement({ tag: "button", className: "btn-chat", text: "\u5728\u7ebf\u6c9f\u901a", parent: operate });

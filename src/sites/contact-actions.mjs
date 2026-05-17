@@ -255,6 +255,17 @@ export function contactTriggerExpression(site) {
     ].filter(Boolean).join(" "));
     const classFor = (el) => String(el?.className || "");
     const tagFor = (el) => String(el?.tagName || "").toUpperCase();
+    const hasPreferredClass = (el, target) => {
+      const classes = [classFor(el), classFor(target)].join(" ");
+      return preferredClassTerms.some((term) => classes.includes(term));
+    };
+    const isSafeSiteTarget = (el, target) => {
+      if (String(site || "").toLowerCase() !== "liepin") return true;
+      const operate = target.closest?.(".job-apply-operate,.job-detail-operate,.job-apply,.job-action,.job-actions");
+      const list = target.closest?.(".job-list,.job-list-box,.recommend,.recommend-list,.similar-job,.hot-job");
+      if (list && !operate) return false;
+      return Boolean(operate || hasPreferredClass(el, target));
+    };
     const labelMatch = (text, label) => {
       const match = compact(text);
       const wanted = compact(label);
@@ -303,6 +314,7 @@ export function contactTriggerExpression(site) {
           const targetText = textFor(target) || text;
           if (!labelMatch(text, label) && !labelMatch(targetText, label)) continue;
           if (!isVisible(target) || isDisabled(target)) continue;
+          if (!isSafeSiteTarget(el, target)) continue;
           candidates.push({
             doc,
             el,
