@@ -13,6 +13,13 @@ gate portion of this plan was replaced by a semantic-review production gate.
 retrieval/evidence, while `--trigger-contact --input` requires validated
 `agent-review --review-output` records with semantic fit and evidence quotes.
 
+**2026-05-17 recommendation source update:** BOSS `/web/geek/jobs` without a
+query and Liepin `/zhaopin/` without a keyword are treated as first-party
+recommendation-list pages. Use `collect --include-recommendation-pages` or the
+default `run --profile ...` pipeline to include them as an audited source with
+`collectionReason: "recommendation-list-tab"`. Detail-page recommendation
+sections remain opt-in through `--include-recommendations`.
+
 **Tech Stack:** Node.js ESM, TypeScript CLI seam, YAML role profiles, `node:test`, Edge Beta CDP harness.
 
 ---
@@ -29,7 +36,13 @@ Add tests that prove seeded collection no longer includes unrelated same-host ta
 
 - [x] **Step 2: Implement target classification**
 
-Add helpers that classify targets as `seeded-url`, `search-list-tab`, `detail-recommendations`, `all-tabs`, or skipped with a reason. With `--url`, collect only the created target ids and exact seed URLs. Without `--url`, collect only search/list pages by default. Add `--include-recommendations` as an explicit opt-in for detail-page recommendation scraping.
+Add helpers that classify targets as `seeded-url`, `search-list-tab`,
+`recommendation-list-tab`, `detail-recommendations`, `all-tabs`, or skipped
+with a reason. With `--url`, collect only the created target ids, exact seed
+URLs, and explicitly opened recommendation-list pages. Without `--url`, collect
+search/list and first-party recommendation-list pages. Add
+`--include-recommendations` as an explicit opt-in for detail-page
+recommendation scraping.
 
 - [x] **Step 3: Record evidence**
 
@@ -92,7 +105,10 @@ Include hard-filter reason samples in `.md` reports and keep JSON evidence compl
 
 - [x] **Step 2: Document current search logic**
 
-Document that normal collection is search/list-only, recommendations require `--include-recommendations`, and model/Codex semantic review should use `agent-review --prepare` / `--review-output` before contact-trigger batches.
+Document that normal collection is search/list/recommendation-list only,
+detail-page recommendations require `--include-recommendations`, and
+model/Codex semantic review should use `agent-review --prepare` /
+`--review-output` before contact-trigger batches.
 
 ### Verification
 

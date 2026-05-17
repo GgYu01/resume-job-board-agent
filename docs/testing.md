@@ -80,6 +80,7 @@ npm test
 node .\tools\job_board_harness.mjs doctor
 node .\tools\job_board_harness.mjs auth --site both --reuse-page --no-open-login
 node .\tools\job_board_harness.mjs collect --site both --reuse-auth-page --no-open-login --out .tmp\job_board_harness\collect_smoke.json
+node .\tools\job_board_harness.mjs collect --site both --include-recommendation-pages --reuse-auth-page --no-open-login --out .tmp\job_board_harness\recommendation_collect_smoke.json
 node .\tools\job_board_harness.mjs rank --input .tmp\job_board_harness\collect_smoke.json --profile ai-agent-dev --out .tmp\job_board_harness\rank_smoke.json
 node .\tools\job_board_harness.mjs run --profile ai-agent-dev --fixture boss-search-normal --run-id fixture_smoke --dry-run
 node .\tools\job_board_harness.mjs open-batches --queue .tmp\job_board_harness\runs\fixture_smoke\open_queue.json --dry-run

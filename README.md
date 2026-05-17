@@ -16,6 +16,7 @@ The project direction is intentionally small and local:
 .\tools\job-board.cmd start-browser
 .\tools\job-board.cmd auth --site both --open-login
 .\tools\job-board.cmd collect --site both
+.\tools\job-board.cmd collect --site both --include-recommendation-pages
 .\tools\job-board.cmd rank --input <candidates.json> --profile ai-agent-dev
 .\tools\job-board.cmd extract-details --input <selection.json> --out <details.json>
 .\tools\job-board.cmd rank --input <details.json> --profile ai-agent-dev
@@ -53,6 +54,9 @@ Codex review contract:
 signals only. Any `--trigger-contact --input` production flow requires a
 validated semantic review from `agent-review --review-output`; rule fallback
 records are refused unless `--allow-unaudited-contact` is passed intentionally.
+Use `collect --include-recommendation-pages` or the default `run --profile ...`
+flow to include BOSS/Liepin recommendation list pages as an additional screened
+source.
 
 Fixture dry-run:
 

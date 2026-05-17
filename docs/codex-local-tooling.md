@@ -343,9 +343,12 @@ Current conclusion:
   `src/sites/liepin.mjs`, `src/sites/job51.mjs`, and `src/sites/registry.mjs`
   are the site-adapter/fixture extraction pieces.
 - `src/cli/collect-targets.mjs` owns collection target classification. Normal
-  collection is seed-target/search-list only; detail-page recommendation
-  scraping requires `--include-recommendations`, and `meta.skippedTargets`
-  records skipped tabs for later audit.
+  collection is seed-target/search-list/recommendation-list only. Use
+  `--include-recommendation-pages` to open known BOSS/Liepin recommendation
+  list pages as a direct source; `run --profile ...` adds those recommendation
+  pages by default unless `--no-recommendation-pages` is passed. Detail-page
+  recommendation scraping still requires `--include-recommendations`, and
+  `meta.skippedTargets` records skipped tabs for later audit.
 - `src/extract/extract-detail.mjs` and `extract-details` add the optional detail
   summary pass for Phase 3.
 - `src/config/profile-patch.mjs`, `feedback --suggest-profile-patch`,

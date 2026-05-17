@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyCollectTargets } from "../../src/cli/collect-targets.mjs";
+import {
+  classifyCollectTargets,
+  isCollectableRecommendationUrl,
+  recommendationPageUrls,
+} from "../../src/cli/collect-targets.mjs";
 
 test("seeded collect only evaluates seeded target ids instead of every same-host tab", () => {
   const result = classifyCollectTargets([
@@ -68,4 +72,113 @@ test("default collect skips detail-page recommendations unless explicitly reques
     "search-list-tab",
     "detail-recommendations",
   ]);
+});
+
+test("collect classifies first-party recommendation list pages as a screening source", () => {
+  const targets = [
+    {
+      id: "boss-recommend",
+      type: "page",
+      url: "https://www.zhipin.com/web/geek/jobs",
+      title: "BOSS 推荐职位",
+      webSocketDebuggerUrl: "ws://boss-recommend",
+    },
+    {
+      id: "boss-search",
+      type: "page",
+      url: "https://www.zhipin.com/web/geek/jobs?query=AI%20Agent&city=101280600",
+      title: "BOSS AI Agent 搜索",
+      webSocketDebuggerUrl: "ws://boss-search",
+    },
+    {
+      id: "liepin-recommend",
+      type: "page",
+      url: "https://www.liepin.com/zhaopin/",
+      title: "猎聘推荐职位",
+      webSocketDebuggerUrl: "ws://liepin-recommend",
+    },
+    {
+      id: "liepin-search",
+      type: "page",
+      url: "https://www.liepin.com/zhaopin/?key=RAG",
+      title: "猎聘 RAG 搜索",
+      webSocketDebuggerUrl: "ws://liepin-search",
+    },
+  ];
+
+  const result = classifyCollectTargets(targets, { site: "both" });
+  assert.deepEqual(result.selected.map((item) => [item.id, item.collectionReason]), [
+    ["boss-recommend", "recommendation-list-tab"],
+    ["boss-search", "search-list-tab"],
+    ["liepin-recommend", "recommendation-list-tab"],
+    ["liepin-search", "search-list-tab"],
+  ]);
+});
+
+test("recommendation page seeds keep recommendation evidence in strict seeded collection", () => {
+  const recommendationUrls = recommendationPageUrls("both");
+  assert(recommendationUrls.includes("https://www.zhipin.com/web/geek/jobs"));
+  assert(recommendationUrls.includes("https://www.liepin.com/zhaopin/"));
+  assert.equal(isCollectableRecommendationUrl("https://www.zhipin.com/web/geek/jobs"), true);
+  assert.equal(isCollectableRecommendationUrl("https://www.zhipin.com/web/geek/jobs?query=AI"), false);
+  assert.equal(isCollectableRecommendationUrl("https://www.liepin.com/zhaopin/"), true);
+  assert.equal(isCollectableRecommendationUrl("https://www.liepin.com/zhaopin/?key=AI"), false);
+
+  const result = classifyCollectTargets([
+    {
+      id: "user-seed",
+      type: "page",
+      url: "https://www.zhipin.com/web/geek/jobs?query=AI%20Agent",
+      title: "user search",
+      webSocketDebuggerUrl: "ws://user-seed",
+    },
+    {
+      id: "boss-recommend",
+      type: "page",
+      url: "https://www.zhipin.com/web/geek/jobs",
+      title: "BOSS recommend",
+      webSocketDebuggerUrl: "ws://boss-recommend",
+    },
+    {
+      id: "old-search",
+      type: "page",
+      url: "https://www.liepin.com/zhaopin/?key=Noise",
+      title: "old search",
+      webSocketDebuggerUrl: "ws://old-search",
+    },
+  ], {
+    site: "both",
+    seedUrls: ["https://www.zhipin.com/web/geek/jobs?query=AI%20Agent"],
+    seeded: [{ targetId: "user-seed" }],
+    recommendationUrls: ["https://www.zhipin.com/web/geek/jobs"],
+    seededRecommendations: [{ targetId: "boss-recommend" }],
+  });
+
+  assert.deepEqual(result.selected.map((item) => [item.id, item.collectionReason]), [
+    ["user-seed", "seeded-url"],
+    ["boss-recommend", "recommendation-list-tab"],
+  ]);
+  assert.deepEqual(result.skipped.map((item) => item.reason), ["not-seeded-target"]);
+});
+
+test("collect target classification skips duplicate page URLs before evaluation", () => {
+  const result = classifyCollectTargets([
+    {
+      id: "recommend-new",
+      type: "page",
+      url: "https://www.zhipin.com/web/geek/jobs",
+      title: "BOSS recommend new",
+      webSocketDebuggerUrl: "ws://recommend-new",
+    },
+    {
+      id: "recommend-old",
+      type: "page",
+      url: "https://www.zhipin.com/web/geek/jobs",
+      title: "BOSS recommend old",
+      webSocketDebuggerUrl: "ws://recommend-old",
+    },
+  ], { site: "boss" });
+
+  assert.deepEqual(result.selected.map((item) => item.id), ["recommend-new"]);
+  assert.deepEqual(result.skipped.map((item) => item.reason), ["duplicate-target-url"]);
 });

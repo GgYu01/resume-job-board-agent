@@ -79,6 +79,7 @@ collect detail links from those pages:
 
 ```powershell
 .\tools\job-board.cmd collect --site both
+.\tools\job-board.cmd collect --site both --include-recommendation-pages
 ```
 
 Or let the harness open a search/list URL as a background tab first:
@@ -88,11 +89,20 @@ Or let the harness open a search/list URL as a background tab first:
 ```
 
 Use `--site liepin` or `--site boss` for one site. Normal collection now
-inspects only the seed target created by `--url`, or search/list tabs when no
-seed URL is supplied. It does not scrape detail-page recommendation sections by
-default. Pass `--include-recommendations` only when the task explicitly wants to
-mine related jobs from already-open detail pages. Use `--all-tabs` only when the
-agent intentionally wants every matching browser tab inspected.
+inspects only the seed target created by `--url`, or search/list and
+first-party recommendation-list tabs when no seed URL is supplied. Pass
+`--include-recommendation-pages` to open known BOSS/Liepin recommendation list
+pages directly (`https://www.zhipin.com/web/geek/jobs` and
+`https://www.liepin.com/zhaopin/`) and record them as
+`collectionReason: "recommendation-list-tab"`. It does not scrape detail-page
+recommendation sections by default. Pass `--include-recommendations` only when
+the task explicitly wants to mine related jobs from already-open detail pages.
+Use `--all-tabs` only when the agent intentionally wants every matching browser
+tab inspected.
+
+`run --profile ...` auto-adds the BOSS/Liepin recommendation list pages as an
+extra source before ranking. Pass `--no-recommendation-pages` only when a run
+must be limited to explicitly opened search/list pages.
 
 51job is available as a site adapter for URL canonicalization, fixtures, and
 targeted collection:
@@ -104,7 +114,8 @@ targeted collection:
 `collect` runs the login-state gate by default. Use `--skip-auth-check` only for
 a deliberate manual exception. Candidate JSON includes `meta.pages[].collectionReason`
 and `meta.skippedTargets[]` so later audits can see whether data came from a
-seeded URL, search/list tab, explicit recommendations, or was skipped.
+seeded URL, search/list tab, recommendation-list tab, detail-page
+recommendations, or was skipped.
 
 The output is written under `.tmp/job_board_harness/candidates_*.json`.
 
