@@ -65,6 +65,34 @@ test("hard filters reject below-min salary and above-max experience", () => {
   assert(scored.score < -100);
 });
 
+test("hard filters ignore null salary and experience limits", () => {
+  const profile = {
+    id: "null-hard-filter",
+    label: "Null Hard Filter",
+    must_have: [{ term: "AI Agent", weight: 12 }],
+    should_have: [],
+    nice_to_have: [],
+    negative: [],
+    hard_filters: {
+      min_salary: null,
+      max_experience_years: null,
+      cities: [],
+      reject_internship: true,
+      reject_part_time: true,
+    },
+  };
+
+  const scored = scoreRecord({
+    title: "AI Agent Engineer",
+    salary: "10-15K",
+    experience: "10 years",
+  }, { profile });
+
+  assert(!scored.hardRejected.some((reason) => reason.startsWith("salary-below-min")));
+  assert(!scored.hardRejected.some((reason) => reason.startsWith("experience-above-max")));
+  assert(scored.score > 0);
+});
+
 test("run --fixture writes the pipeline artifacts under the requested run directory", () => {
   const runId = "unit_remaining_run_artifacts";
   const runDir = path.join(STATE_DIR, "runs", runId);

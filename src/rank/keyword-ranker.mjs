@@ -78,6 +78,12 @@ function parseExperienceYears(value) {
   return null;
 }
 
+function optionalNumericLimit(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function hardFilter(record, text, filters = {}) {
   const reasons = [];
   if (filters.reject_internship !== false && includesTerm(text, "实习")) reasons.push("internship");
@@ -87,16 +93,18 @@ function hardFilter(record, text, filters = {}) {
     const cityText = normalizeText([record.city, record.location, record.sourceTitle, text].filter(Boolean).join("\n"));
     if (!cities.some((city) => includesTerm(cityText, city))) reasons.push(`city-not-in:${cities.join("|")}`);
   }
-  if (Number.isFinite(Number(filters.min_salary))) {
+  const minSalary = optionalNumericLimit(filters.min_salary);
+  if (minSalary !== null) {
     const salaryK = parseSalaryK([record.salary, record.salaryText, record.compensation, text].filter(Boolean).join("\n"));
-    if (salaryK !== null && salaryK < Number(filters.min_salary)) {
-      reasons.push(`salary-below-min:${salaryK}<${Number(filters.min_salary)}`);
+    if (salaryK !== null && salaryK < minSalary) {
+      reasons.push(`salary-below-min:${salaryK}<${minSalary}`);
     }
   }
-  if (Number.isFinite(Number(filters.max_experience_years))) {
+  const maxExperienceYears = optionalNumericLimit(filters.max_experience_years);
+  if (maxExperienceYears !== null) {
     const years = parseExperienceYears([record.experience, record.workYears, record.years, text].filter(Boolean).join("\n"));
-    if (years !== null && years > Number(filters.max_experience_years)) {
-      reasons.push(`experience-above-max:${years}>${Number(filters.max_experience_years)}`);
+    if (years !== null && years > maxExperienceYears) {
+      reasons.push(`experience-above-max:${years}>${maxExperienceYears}`);
     }
   }
   return reasons;
