@@ -91,3 +91,32 @@ test("validateAgentReviewOutput rejects model action directives outside review s
 
   assert(result.errors.some((error) => /must not request browser, contact, message, or application actions/.test(error)));
 });
+
+test("agent review V2 allows needs_more_info but forbids execution directives", () => {
+  const valid = validateAgentReviewOutput({
+    selection: [{
+      id: "candidate-1",
+      decision: "needs_more_info",
+      confidence: "medium",
+      fit_summary: "AI Agent overlap is strong but salary is missing.",
+      reason: "Missing salary and team scope.",
+      matched_evidence: ["AI Agent", "RAG"],
+      risk_flags: ["salary_missing"],
+      missing_information: ["salary", "team scope"],
+      suggested_user_question: "请确认薪资下限和团队方向。",
+    }],
+  }, { allowedIds: ["candidate-1"] });
+  assert.deepEqual(valid.errors, []);
+
+  const invalid = validateAgentReviewOutput({
+    selection: [{
+      id: "candidate-1",
+      decision: "select",
+      confidence: "high",
+      reason: "打开浏览器并立即沟通 HR",
+      risk: "none",
+      candidate: { id: "candidate-1" },
+    }],
+  }, { allowedIds: ["candidate-1"] });
+  assert(invalid.errors.some((error) => /external action|外部动作|must not/i.test(error)));
+});

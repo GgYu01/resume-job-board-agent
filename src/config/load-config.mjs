@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { parseSimpleYaml } from "./simple-yaml.mjs";
+import YAML from "yaml";
 import { DEFAULT_BATCH_POLICY } from "./defaults.mjs";
 
 export function loadYamlFile(file) {
-  return parseSimpleYaml(fs.readFileSync(file, "utf8"));
+  return YAML.parse(fs.readFileSync(file, "utf8"));
 }
 
 export function resolveRoleProfilePath(root, profileId) {

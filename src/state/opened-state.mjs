@@ -103,6 +103,30 @@ function backfillFromOpenedArtifacts(stateDir, state) {
   }
 }
 
+function backfillFromOpenLedger(stateDir, state) {
+  const candidates = [
+    path.join(stateDir, "state", "open_ledger.jsonl"),
+    path.join(stateDir, "open_ledger.jsonl"),
+  ];
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        for (const key of event.identity_keys || []) {
+          state.keys.add(key);
+          if (key.startsWith("id:")) state.ids.add(key.slice(3));
+          if (key.startsWith("url:")) state.urls.add(key.slice(4));
+        }
+        if (event.record) addRecordKeysToState(state, event.record);
+      } catch {
+        continue;
+      }
+    }
+  }
+}
+
 export function recordIdentityKeys(record = {}) {
   const keys = new Set();
   const rawUrl = String(record.url || record.href || "").trim();
@@ -166,6 +190,7 @@ export function loadOpenedState(stateDir) {
   }
 
   backfillFromOpenedArtifacts(stateDir, state);
+  backfillFromOpenLedger(stateDir, state);
 
   return state;
 }

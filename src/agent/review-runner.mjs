@@ -108,6 +108,11 @@ export function buildAgentReview(input, options = {}) {
       url: normalized.url || "",
       score: Number(normalized.score || 0),
       ...decision,
+      fit_summary: decision.reason,
+      matched_evidence: reviewEvidenceTerms(normalized),
+      risk_flags: reviewNegativeTerms(normalized).length ? ["negative_terms"] : [],
+      missing_information: normalized.salary ? [] : ["salary"],
+      suggested_user_question: normalized.salary ? "" : "请打开详情页确认薪资范围和团队方向。",
       candidate: normalized,
     };
   });

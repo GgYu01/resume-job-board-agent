@@ -101,6 +101,6 @@ test("target TypeScript CLI wrapper structure exists for future harness migratio
 
 test("tools harness is a small compatibility entrypoint into src/cli", () => {
   const entry = fs.readFileSync(path.join(ROOT, "tools", "job_board_harness.mjs"), "utf8");
-  assert(entry.includes("../src/cli/runtime.mjs"));
+  assert(entry.includes("../dist/cli/main.js"));
   assert(entry.split(/\r?\n/).length <= 80);
 });

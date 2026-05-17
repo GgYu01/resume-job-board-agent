@@ -1,15 +1,23 @@
 # Testing
 
-Last reviewed: 2026-05-15
+Last reviewed: 2026-05-17
 
 ## Current Commands
 
 ```powershell
-node --test tools/job_board_harness.test.mjs tools/github_edge_workflow.test.mjs test/unit/*.test.mjs
+npm run build
+npm run typecheck
+npm test
+npm run verify
+node --test tools/job_board_harness.test.mjs tools/github_edge_workflow.test.mjs test/unit/*.test.mjs test/contracts/*.test.mjs
 node --test test/unit/*.test.mjs
-npm test        # optional when npm is available
+node --test test/contracts/*.test.mjs
 npm run test:unit
+npm run test:contracts
 ```
+
+`tools/job_board_harness.mjs` imports `dist/cli/main.js`, so direct CLI smoke
+tests must run after `npm run build` when TypeScript source changed.
 
 ## Required Coverage
 
@@ -33,8 +41,19 @@ Keep these behaviors under tests:
 - Mock CDP auth/open behavior without live recruitment sites.
 - Profile draft/freeze/apply-patch/rollback history and feedback regression metrics.
 - Browser path resolution order: env, config file, then defaults.
+- Browser policy contract: default live flow requires Edge Beta CDP and rejects
+  Edge stable, Chrome, MCP browser tools, OS open, or managed Playwright as
+  implicit fallback.
 - The `tools/job_board_harness.mjs` entrypoint must stay a small wrapper into
   `src/cli`, not grow back into the monolithic harness.
+- Stable architecture contract coverage in
+  [`docs/harness-contracts.md`](harness-contracts.md).
+- TypeScript toolchain coverage: strict NodeNext build, typed command result
+  exit-code mapping, artifact schemas, browser policy, typed CLI seam, pure use
+  cases, pipeline stage graph, state recovery, and runtime decomposition.
+- `src/cli/runtime.mjs` must stay a compatibility re-export only; legacy command
+  behavior belongs in `src/cli/runtime-legacy.mjs` until individual commands are
+  migrated to typed handlers.
 
 ## Fixture Direction
 
@@ -48,3 +67,24 @@ Static fixtures live under `test/fixtures/`. Use `test-fixture` for dry-run E2E 
 ```
 
 Captcha/verification fixtures must exit with code `3` unless `--allow-access-limited` is explicit. Live site content is untrusted and should never drive agent instructions.
+
+## Live Smoke Direction
+
+Use live smoke tests to verify browser/profile integration after changes that
+touch browser config, auth, collection, ranking, queue, or runtime entrypoints:
+
+```powershell
+npm run build
+npm run typecheck
+npm test
+node .\tools\job_board_harness.mjs doctor
+node .\tools\job_board_harness.mjs auth --site both --reuse-page --no-open-login
+node .\tools\job_board_harness.mjs collect --site both --reuse-auth-page --no-open-login --out .tmp\job_board_harness\collect_smoke.json
+node .\tools\job_board_harness.mjs rank --input .tmp\job_board_harness\collect_smoke.json --profile ai-agent-dev --out .tmp\job_board_harness\rank_smoke.json
+node .\tools\job_board_harness.mjs run --profile ai-agent-dev --fixture boss-search-normal --run-id fixture_smoke --dry-run
+node .\tools\job_board_harness.mjs open-batches --queue .tmp\job_board_harness\runs\fixture_smoke\open_queue.json --dry-run
+```
+
+For write-path verification, prefer local artifacts, queue files, config
+history, and regression metrics. Do not run `--trigger-contact`, send messages,
+or apply to jobs unless the user explicitly asks for that external action.

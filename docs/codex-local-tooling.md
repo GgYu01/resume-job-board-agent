@@ -1,6 +1,6 @@
 # Codex Local Tooling
 
-Last reviewed: 2026-05-14
+Last reviewed: 2026-05-17
 
 ## Codex CLI
 
@@ -317,17 +317,22 @@ Operational boundary:
 
 ## Job-board architecture refactor checkpoint
 
-Last reviewed: 2026-05-15 on Windows / Codex Desktop.
+Last reviewed: 2026-05-17 on Windows / Codex Desktop.
 
 Current conclusion:
 
-- `tools/job_board_harness.mjs` is now compatibility-only and forwards to
-  `src/cli/runtime.mjs`.
-- The old monolithic harness is preserved by the Git branch
-  `codex/legacy-harness-monolith`; main should continue on the new `src/cli`
-  architecture.
-- Keep moving deterministic logic from `src/cli/runtime.mjs` into focused
-  `src/` modules as command implementations mature.
+- `tools/job_board_harness.mjs` is now compatibility-only and imports
+  `dist/cli/main.js`; run `npm run build` before direct tool smoke tests after
+  TypeScript edits.
+- `src/cli/main.ts`, `src/cli/parser.ts`, `src/cli/command-result.ts`, and
+  `src/cli/commands/*.ts` are the typed CLI seam. `src/cli/runtime.mjs` is only
+  a compatibility re-export, and the old command implementation now lives in
+  `src/cli/runtime-legacy.mjs`.
+- Keep migrating command behavior from `src/cli/runtime-legacy.mjs` into focused
+  TypeScript modules as command implementations mature.
+- New focused TypeScript modules now cover artifact envelopes, browser policy
+  and ports, pure use cases, stage graph execution, queue/run stores, and the
+  semantic open ledger.
 - `src/agent/review-runner.mjs` owns the structured agent-review contract and
   selection validation. The harness consumes that module instead of inventing
   review records inline.
@@ -366,12 +371,17 @@ Current conclusion:
   `.tmp/job_board_harness/regression_metrics.jsonl`.
 - Keep the project-local skills under `skills/`: `job-board-page-opener`,
   `job-selection-review`, `job-keyword-profile-review`, and
-  `job-feedback-update`. Update these skills when CLI commands change. No MCP
-  server should be added yet; the CDP harness is enough for this phase.
-- `package.json` now provides `npm test`, `npm run test:unit`, and
-  `npm run doctor` as optional shortcuts when npm is available. In this Codex
-  Desktop runtime, direct `node --test ...` and
-  `node tools/job_board_harness.mjs doctor` are the verified baseline.
+  `job-feedback-update`. Update these skills when user-facing CLI commands
+  change. Do not add a new project-local skill for the TypeScript seam yet; the
+  migration is mostly internal and legacy commands still delegate through the
+  compatibility runtime.
+- No MCP server should be added yet; the Edge Beta CDP harness is enough for
+  this phase and is still the only durable recruitment-login browser path.
+- `package.json` now provides `npm run build`, `npm run typecheck`,
+  `npm test`, `npm run test:unit`, `npm run test:contracts`, `npm run verify`,
+  and `npm run doctor`. In this Codex Desktop runtime, the verified baseline is
+  `npm run build`, `npm run typecheck`, `npm test`, and
+  `node tools/job_board_harness.mjs doctor`.
 
 ### 2026-05-15 contact trigger verification update
 

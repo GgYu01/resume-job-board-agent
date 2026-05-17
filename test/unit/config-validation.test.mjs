@@ -3,6 +3,41 @@ import test from "node:test";
 
 import { validateRoleProfile } from "../../src/config/load-config.mjs";
 
+test("typed role profile schema validates current durable profiles", async () => {
+  const { validateRoleProfileConfig } = await import("../../dist/config/profile-schema.js");
+  const profile = {
+    id: "ai-agent-dev",
+    label: "AI Agent 工程化",
+    version: 1,
+    must_have: [{ term: "AI Agent", weight: 18 }],
+    should_have: [{ term: "LLM", weight: 14 }],
+    nice_to_have: [],
+    negative: [{ term: "销售", weight: -30 }],
+    hard_filters: {
+      min_salary: null,
+      cities: [],
+      reject_internship: true,
+      reject_part_time: true,
+    },
+    ranking_policy: { use_default_terms: false },
+    review_policy: {
+      codex_review_top_n: 40,
+      codex_review_borderline_n: 20,
+      require_evidence: true,
+      allow_uncertain: false,
+    },
+    batch_policy: {
+      max_per_batch: 15,
+      batch_cooldown_ms: 45000,
+      jitter_ms: 10000,
+      stop_on_access_limited: true,
+    },
+  };
+
+  const result = validateRoleProfileConfig(profile);
+  assert.equal(result.ok, true);
+});
+
 test("validateRoleProfile rejects invalid batch, review, and hard-filter shapes", () => {
   const validation = validateRoleProfile({
     id: "bad-profile",

@@ -5,7 +5,20 @@
   "type": "module",
   "scripts": {
     "doctor": "node tools/job_board_harness.mjs doctor",
-    "test": "node --test tools/job_board_harness.test.mjs tools/github_edge_workflow.test.mjs test/unit/*.test.mjs",
-    "test:unit": "node --test test/unit/*.test.mjs"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test tools/job_board_harness.test.mjs tools/github_edge_workflow.test.mjs test/unit/*.test.mjs test/contracts/*.test.mjs",
+    "test:unit": "node --test test/unit/*.test.mjs",
+    "test:contracts": "node --test test/contracts/*.test.mjs",
+    "verify": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "yaml": "^2.8.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
   }
 }

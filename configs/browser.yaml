@@ -1,2 +1,5 @@
 browser_exe: null
 browser_profile: null
+browser_policy:
+  required_family: edge-beta
+  allow_fallback_family: false

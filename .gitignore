@@ -44,6 +44,9 @@ __pycache__/
 .coverage
 coverage.xml
 
+# Node/tooling cache
+node_modules/
+
 # Build/generated archives
 dist/
 build/
