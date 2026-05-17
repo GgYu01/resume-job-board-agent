@@ -17,6 +17,7 @@ The project direction is intentionally small and local:
 .\tools\job-board.cmd auth --site both --open-login
 .\tools\job-board.cmd collect --site both
 .\tools\job-board.cmd collect --site both --include-recommendation-pages
+.\tools\job-board.cmd collect --site both --include-recommendation-pages --recommendation-topic-max 4
 .\tools\job-board.cmd rank --input <candidates.json> --profile ai-agent-dev
 .\tools\job-board.cmd extract-details --input <selection.json> --out <details.json>
 .\tools\job-board.cmd rank --input <details.json> --profile ai-agent-dev
@@ -56,7 +57,10 @@ validated semantic review from `agent-review --review-output`; rule fallback
 records are refused unless `--allow-unaudited-contact` is passed intentionally.
 Use `collect --include-recommendation-pages` or the default `run --profile ...`
 flow to include BOSS/Liepin recommendation list pages as an additional screened
-source.
+source. BOSS overview topic tabs such as the horizontal role recommendations
+are clicked and captured as `collectionReason: "recommendation-topic-tab"` by
+default; use `--no-recommendation-topic-tabs` to disable that source. Liepin
+collection canonicalizes both `/job/<id>.shtml` and `/lptjob/<id>` detail URLs.
 
 Fixture dry-run:
 

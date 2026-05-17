@@ -3,7 +3,7 @@ export const BOSS_DETAIL_QUERY_PARAMS = ["securityId", "lid", "ka"];
 export const SITE_PATTERNS = {
   liepin: {
     host: "liepin.com",
-    detail: /https?:\/\/(?:www\.)?liepin\.com\/((?:job|a)\/(\d+)\.shtml)/i,
+    detail: /https?:\/\/(?:www\.)?liepin\.com\/(?:(?:((?:job|a)\/(\d+)\.shtml))|(?:lptjob\/(\d+)))/i,
   },
   boss: {
     host: "zhipin.com",
@@ -46,6 +46,8 @@ export function canonicalJobUrl(input) {
     const match = url.match(cfg.detail);
     if (!match) continue;
     if (site === "liepin") {
+      const lptJobId = match[3];
+      if (lptJobId) return { site, id: lptJobId, url: `https://www.liepin.com/lptjob/${lptJobId}` };
       return { site, id: match[2], url: `https://www.liepin.com/${match[1]}` };
     }
     if (site === "boss") {

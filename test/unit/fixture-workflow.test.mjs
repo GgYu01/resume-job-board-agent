@@ -28,6 +28,34 @@ test("extractJobCardsFromHtml extracts fixture detail links and access-limited s
   assert.equal(detectAccessLimited(captcha, "https://verify.zhipin.com/security"), true);
 });
 
+test("extractJobCardsFromHtml extracts Liepin lptjob detail links", () => {
+  const html = `
+    <article class="job-card">
+      <a href="https://www.liepin.com/lptjob/82545837?sfrom=search_job_pc">AI Agent 算法工程师</a>
+      <p>负责 LLM Agent、RAG 和多智能体系统落地。</p>
+    </article>
+  `;
+  const extracted = extractJobCardsFromHtml(html, {
+    site: "liepin",
+    sourceUrl: "https://www.liepin.com/zhaopin/?key=AI%20Agent",
+    sourceTitle: "fixture",
+  });
+
+  assert.equal(extracted.items.length, 1);
+  assert.deepEqual({
+    ...extracted.items[0],
+    cardText: extracted.items[0].cardText.replace(/\s+/g, " "),
+  }, {
+    site: "liepin",
+    id: "82545837",
+    url: "https://www.liepin.com/lptjob/82545837",
+    titleText: "AI Agent 算法工程师",
+    cardText: "AI Agent 算法工程师 负责 LLM Agent、RAG 和多智能体系统落地。",
+    sourceUrl: "https://www.liepin.com/zhaopin/?key=AI%20Agent",
+    sourceTitle: "fixture",
+  });
+});
+
 test("test-fixture dry-run builds ranked selection and queue without browser access", () => {
   const out = execFileSync(process.execPath, [
     HARNESS,

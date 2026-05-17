@@ -651,6 +651,8 @@ test("help and workflow expose the productized pipeline commands", () => {
   assert.match(help, /agent-review/);
   assert.match(help, /open-batches/);
   assert.match(help, /--include-recommendation-pages/);
+  assert.match(help, /--no-recommendation-topic-tabs/);
+  assert.match(help, /--recommendation-topic-max/);
   assert.match(help, /doctor/);
 
   const workflow = runHarness(["workflow"]);

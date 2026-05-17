@@ -23,10 +23,17 @@ test("canonicalJobUrl accepts only detail pages and preserves BOSS context param
     id: "1981404985",
     url: "https://www.liepin.com/job/1981404985.shtml",
   });
+  const liepinLptJob = canonicalJobUrl("https://www.liepin.com/lptjob/82545837?sfrom=search_job_pc&d_sfrom=search_fp");
+  assert.deepEqual(liepinLptJob, {
+    site: "liepin",
+    id: "82545837",
+    url: "https://www.liepin.com/lptjob/82545837",
+  });
 
   assert.equal(canonicalJobUrl("https://www.zhipin.com/web/geek/jobs?query=AI"), null);
   assert.equal(isGenericJobBoardUrl("https://www.zhipin.com/web/geek/jobs?query=AI"), true);
   assert.equal(recordKey({ url: "https://www.liepin.com/job/1981404985.shtml?sfrom=x" }), "liepin:1981404985");
+  assert.equal(recordKey({ url: "https://www.liepin.com/lptjob/82545837?sfrom=x" }), "liepin:82545837");
 });
 
 test("profile ranking explains positive and negative evidence", () => {

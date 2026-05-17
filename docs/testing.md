@@ -80,7 +80,8 @@ npm test
 node .\tools\job_board_harness.mjs doctor
 node .\tools\job_board_harness.mjs auth --site both --reuse-page --no-open-login
 node .\tools\job_board_harness.mjs collect --site both --reuse-auth-page --no-open-login --out .tmp\job_board_harness\collect_smoke.json
-node .\tools\job_board_harness.mjs collect --site both --include-recommendation-pages --reuse-auth-page --no-open-login --out .tmp\job_board_harness\recommendation_collect_smoke.json
+node .\tools\job_board_harness.mjs collect --site both --include-recommendation-pages --recommendation-topic-max 4 --reuse-auth-page --no-open-login --out .tmp\job_board_harness\recommendation_collect_smoke.json
+node .\tools\job_board_harness.mjs collect --site liepin --url "https://www.liepin.com/zhaopin/?key=AI%20Agent" --reuse-auth-page --no-open-login --out .tmp\job_board_harness\liepin_lptjob_collect_smoke.json
 node .\tools\job_board_harness.mjs rank --input .tmp\job_board_harness\collect_smoke.json --profile ai-agent-dev --out .tmp\job_board_harness\rank_smoke.json
 node .\tools\job_board_harness.mjs run --profile ai-agent-dev --fixture boss-search-normal --run-id fixture_smoke --dry-run
 node .\tools\job_board_harness.mjs open-batches --queue .tmp\job_board_harness\runs\fixture_smoke\open_queue.json --dry-run
@@ -89,3 +90,8 @@ node .\tools\job_board_harness.mjs open-batches --queue .tmp\job_board_harness\r
 For write-path verification, prefer local artifacts, queue files, config
 history, and regression metrics. Do not run `--trigger-contact`, send messages,
 or apply to jobs unless the user explicitly asks for that external action.
+Recommendation source verification should check `meta.pages[].collectionReason`
+for `recommendation-list-tab` and, when BOSS exposes horizontal role tabs,
+`recommendation-topic-tab`. Liepin smoke output should include canonical
+`https://www.liepin.com/lptjob/<id>` URLs when the live page emits that URL
+family.

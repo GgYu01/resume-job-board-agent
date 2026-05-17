@@ -20,6 +20,17 @@ default `run --profile ...` pipeline to include them as an audited source with
 `collectionReason: "recommendation-list-tab"`. Detail-page recommendation
 sections remain opt-in through `--include-recommendations`.
 
+**2026-05-17 recommendation topic update:** BOSS horizontal overview role tabs
+under `.expect-list a.expect-item` are now clicked during collection by default
+and recorded as `collectionReason: "recommendation-topic-tab"`. Use
+`--no-recommendation-topic-tabs` to disable this safe list-source expansion.
+Real Liepin pages were also found to emit `/lptjob/<id>` detail URLs; these are
+now canonicalized and extracted alongside `/job/<id>.shtml` and `/a/<id>.shtml`.
+Live `--trigger-contact` testing on a Liepin `/lptjob` page also found the
+existing-conversation button label `继续聊`; this is treated as an existing
+conversation marker so the harness verifies the state without opening a new
+conversation.
+
 **Tech Stack:** Node.js ESM, TypeScript CLI seam, YAML role profiles, `node:test`, Edge Beta CDP harness.
 
 ---
@@ -119,3 +130,5 @@ model/Codex semantic review should use `agent-review --prepare` /
 - [x] `npm run verify`
 - [x] Fixture dry-run with `boss-search-normal`
 - [x] Real Edge CDP dry-run collect/rank/review/select/open-batches without triggering contact
+- [x] Real Edge CDP recommendation-list and BOSS recommendation-topic collection smoke
+- [x] Real Edge CDP Liepin `/lptjob/<id>` collection smoke

@@ -9,7 +9,7 @@ function escapedJsonString(value) {
 export function contactActionLabels(site) {
   const normalized = String(site || "").toLowerCase();
   if (normalized === "boss") return ["立即沟通", "继续沟通"];
-  if (normalized === "liepin") return ["聊一聊"];
+  if (normalized === "liepin") return ["聊一聊", "继续聊"];
   return [];
 }
 
@@ -43,7 +43,7 @@ export function contactVerificationOutcome(triggerResult, verification) {
   const conversationOpen = Boolean(verification?.conversationOpen);
   const messageSent = Boolean(verification?.messageSent);
   const alreadyContacted = Boolean(verification?.alreadyContacted);
-  const continueLabel = label === compactTextValue("继续沟通");
+  const continueLabel = label === compactTextValue("继续沟通") || label === compactTextValue("继续聊");
   const directSendLabel = contactTriggerLabels(site)
     .map((item) => compactTextValue(item))
     .includes(label) && !continueLabel;
@@ -139,7 +139,7 @@ export function contactPageStateExpression(site) {
     const existingLabels = site === "boss"
       ? ["\\u7ee7\\u7eed\\u6c9f\\u901a", "\\u5df2\\u6c9f\\u901a", "\\u6c9f\\u901a\\u8fc7", "\\u5df2\\u804a"]
       : site === "liepin"
-        ? ["\\u5df2\\u804a", "\\u5df2\\u804a\\u8fc7", "\\u7ee7\\u7eed\\u6c9f\\u901a", "\\u6c9f\\u901a\\u8fc7", "\\u5df2\\u6c9f\\u901a"]
+        ? ["\\u5df2\\u804a", "\\u5df2\\u804a\\u8fc7", "\\u7ee7\\u7eed\\u804a", "\\u7ee7\\u7eed\\u6c9f\\u901a", "\\u6c9f\\u901a\\u8fc7", "\\u5df2\\u6c9f\\u901a"]
         : [];
     const elements = Array.from(document.querySelectorAll("button,a,[role='button'],div,span,textarea,input,[contenteditable='true']"));
     const visibleItems = elements
@@ -171,7 +171,7 @@ export function contactPageStateExpression(site) {
       visibleItems.some((item) => /^(TEXTAREA|INPUT)$/.test(item.tag) && /\\u53d1\\u9001|\\u56de\\u590d|\\u8f93\\u5165\\u6d88\\u606f|\\u6d88\\u606f\\u5185\\u5bb9|\\u6c9f\\u901a\\u5185\\u5bb9/.test(item.text));
     const alreadyText = site === "boss"
       ? /\\u7ee7\\u7eed\\u6c9f\\u901a|\\u5df2\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u804a/.test(visibleText)
-      : /\\u5df2\\u804a|\\u5df2\\u804a\\u8fc7|\\u7ee7\\u7eed\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u6c9f\\u901a/.test(visibleText);
+      : /\\u5df2\\u804a|\\u5df2\\u804a\\u8fc7|\\u7ee7\\u7eed\\u804a|\\u7ee7\\u7eed\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u6c9f\\u901a/.test(visibleText);
     const outgoingDefaultMessage = /(?:\\u60a8\\u597d|\\u4f60\\u597d|\\u6211).{0,30}(?:\\u804c\\u4f4d|\\u5c97\\u4f4d).{0,50}(?:\\u611f\\u5174\\u8da3|\\u6c9f\\u901a|\\u4e86\\u89e3)|(?:\\u5bf9|\\u6211\\u5bf9).{0,30}(?:\\u804c\\u4f4d|\\u5c97\\u4f4d).{0,30}\\u611f\\u5174\\u8da3/.test(body);
     const messageSent = Boolean((chatUrl || chatUi) && outgoingDefaultMessage);
     const conversationOpen = Boolean(chatUrl || chatUi);
@@ -406,7 +406,7 @@ export function contactVerificationExpression(site) {
       visibleItems.some((item) => /^(TEXTAREA|INPUT)$/.test(item.tag) && /发送|回复|输入消息|请输入.{0,12}消息|消息内容|沟通内容/i.test(item.text));
     const alreadyContacted = site === "boss"
       ? /继续沟通|沟通过|已沟通/.test(visibleText)
-      : /已聊|继续沟通|沟通过|已沟通/.test(visibleText);
+      : /已聊|继续聊|继续沟通|沟通过|已沟通/.test(visibleText);
     const outgoingDefaultMessage = /(?:您好|你好|我).{0,30}(?:职位|岗位).{0,50}(?:感兴趣|沟通|了解)|(?:对|我对).{0,30}(?:职位|岗位).{0,30}感兴趣/.test(body);
     const messageSent = Boolean((chatUrl || chatUi) && outgoingDefaultMessage);
     const conversationOpen = Boolean(chatUrl || chatUi);

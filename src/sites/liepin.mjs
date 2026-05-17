@@ -21,9 +21,9 @@ const detailExpression = `(() => JSON.stringify({
 
 const collectExpression = `(() => JSON.stringify({
   accessLimited: /验证|captcha|verify|安全/i.test(document.body?.innerText || location.href),
-  items: Array.from(document.querySelectorAll("a[href*='/job/']")).slice(0, 80).map((a, index) => ({
+  items: Array.from(document.querySelectorAll("a[href*='/job/'], a[href*='/lptjob/']")).slice(0, 80).map((a, index) => ({
     site: "liepin",
-    id: a.href.match(/\\/job\\/(\\d+)\\.shtml/)?.[1] || String(index),
+    id: a.href.match(/\\/job\\/(\\d+)\\.shtml/)?.[1] || a.href.match(/\\/lptjob\\/(\\d+)/)?.[1] || String(index),
     url: a.href,
     titleText: a.textContent?.trim() || "",
     cardText: a.closest("li,.job-card,.job-list-box")?.textContent?.trim() || a.textContent?.trim() || "",

@@ -89,7 +89,7 @@ function runBrowserExpression(expression, elements, { url = "https://example.tes
 
 test("contact action labels target explicit site communication buttons", () => {
   assert.deepEqual(contactActionLabels("boss"), ["立即沟通", "继续沟通"]);
-  assert.deepEqual(contactActionLabels("liepin"), ["聊一聊"]);
+  assert.deepEqual(contactActionLabels("liepin"), ["聊一聊", "继续聊"]);
   assert.deepEqual(contactActionLabels("51job"), []);
 });
 
@@ -97,6 +97,7 @@ test("contact trigger expression carries the site-specific button label", () => 
   assert.match(contactTriggerExpression("boss"), /\\u7acb\\u5373\\u6c9f\\u901a/);
   assert.match(contactTriggerExpression("boss"), /\\u7ee7\\u7eed\\u6c9f\\u901a/);
   assert.match(contactTriggerExpression("liepin"), /\\u804a\\u4e00\\u804a/);
+  assert.match(contactTriggerExpression("liepin"), /\\u7ee7\\u7eed\\u804a/);
 });
 
 test("contact trigger expression clicks BOSS start-chat controls from real detail DOM shape", () => {
@@ -162,6 +163,23 @@ test("contact trigger expression clicks conservative communication synonyms", ()
   assert.equal(operate.clicked, 0);
 });
 
+test("contact trigger expression clicks Liepin continue-chat buttons from lptjob DOM shape", () => {
+  const operate = new FakeElement({ className: "job-apply-operate", text: "\u6295\u7b80\u5386 \u7ee7\u7eed\u804a \u6536\u85cf" });
+  const resume = new FakeElement({ tag: "a", className: "btn-minor", text: "\u6295\u7b80\u5386", parent: operate });
+  const chat = new FakeElement({ tag: "a", className: "btn-main", text: "\u7ee7\u7eed\u804a", parent: operate });
+
+  const result = runBrowserExpression(contactTriggerExpression("liepin"), [operate, resume, chat], {
+    url: "https://www.liepin.com/lptjob/82545837",
+    title: "Liepin lptjob detail",
+  });
+
+  assert.equal(result.clicked, true);
+  assert.equal(result.label, "\u7ee7\u7eed\u804a");
+  assert.equal(chat.clicked, 1);
+  assert.equal(resume.clicked, 0);
+  assert.equal(operate.clicked, 0);
+});
+
 test("contact verification expression does not treat a bare BOSS continue button as triggered", () => {
   const startChat = new FakeElement({ tag: "a", className: "btn btn-startchat", text: "继续沟通" });
 
@@ -208,6 +226,22 @@ test("contact page state treats an existing BOSS conversation marker as no-conta
   const result = runBrowserExpression(contactPageStateExpression("boss"), [startChat], {
     url: "https://www.zhipin.com/job_detail/example.html",
     title: "BOSS detail",
+  });
+
+  assert.equal(result.alreadySatisfied, true);
+  assert.equal(result.alreadyContacted, true);
+  assert.equal(result.shouldTrigger, false);
+  assert.equal(result.status, "existing-conversation-marker");
+  assert(result.signals.includes("existing-conversation-action"));
+});
+
+test("contact page state treats Liepin continue-chat as an existing conversation marker", () => {
+  const operate = new FakeElement({ className: "job-apply-operate", text: "\u6295\u7b80\u5386 \u7ee7\u7eed\u804a \u6536\u85cf" });
+  const chat = new FakeElement({ tag: "a", className: "btn-main", text: "\u7ee7\u7eed\u804a", parent: operate });
+
+  const result = runBrowserExpression(contactPageStateExpression("liepin"), [operate, chat], {
+    url: "https://www.liepin.com/lptjob/82545837",
+    title: "Liepin lptjob detail",
   });
 
   assert.equal(result.alreadySatisfied, true);

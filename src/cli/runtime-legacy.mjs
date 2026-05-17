@@ -52,6 +52,7 @@ import {
 import { extractJobCardsFromHtml } from "../extract/collect-links.mjs";
 import { extractDetailFromHtml } from "../extract/extract-detail.mjs";
 import { classifyCollectTargets, recommendationPageUrls } from "./collect-targets.mjs";
+import { buildRecommendationTopicExpression, recommendationTopicSelectors } from "./recommendation-topics.mjs";
 import { appendRegressionMetrics, computeRegressionMetrics } from "../metrics/regression.mjs";
 import { redactSensitiveEvidence as redactSensitiveEvidenceCore } from "../privacy/redact.mjs";
 import {
@@ -601,6 +602,10 @@ function extractionExpression(site) {
       let m = url.match(/https?:\\/\\/(?:www\\.)?liepin\\.com\\/((?:job|a)\\/(\\d+)\\.shtml)/i);
       if (m && (wantedSite === "both" || wantedSite === "liepin")) {
         return { site: "liepin", id: m[2], url: "https://www.liepin.com/" + m[1] };
+      }
+      m = url.match(/https?:\\/\\/(?:www\\.)?liepin\\.com\\/lptjob\\/(\\d+)/i);
+      if (m && (wantedSite === "both" || wantedSite === "liepin")) {
+        return { site: "liepin", id: m[1], url: "https://www.liepin.com/lptjob/" + m[1] };
       }
       m = url.match(/https?:\\/\\/(?:www\\.)?zhipin\\.com\\/job_detail\\/([^/?#]+)\\.html/i);
       if (m && (wantedSite === "both" || wantedSite === "boss")) {
@@ -1547,6 +1552,9 @@ async function cmdCollect(args) {
   if (!hit) throw new Error("CDP is not available. Run start-browser or launch-hint and log in first.");
   const seedUrls = values(args, "url").map((url) => String(url).trim()).filter(Boolean);
   const includeRecommendationPages = boolOption(args, "include-recommendation-pages") || boolOption(args, "recommendations");
+  const includeRecommendationTopicTabs = !boolOption(args, "no-recommendation-topic-tabs");
+  const recommendationTopicMax = intOption(args, "recommendation-topic-max", 4);
+  const recommendationTopicWaitMs = intOption(args, "recommendation-topic-wait-ms", 1600);
   const recommendationUrls = includeRecommendationPages
     ? recommendationPageUrls(site).filter((url) => !seedUrls.some((seedUrl) => seedUrl === url))
     : [];
@@ -1609,6 +1617,7 @@ async function cmdCollect(args) {
   const pages = [];
   const itemsByKey = new Map();
   const warnings = [];
+  const topicSourceReasons = new Set(["seeded-url", "search-list-tab", "recommendation-list-tab"]);
   for (const target of filteredTargets) {
     try {
       const data = await evaluateTarget(target, expression);
@@ -1626,6 +1635,48 @@ async function cmdCollect(args) {
         if (!key || itemsByKey.has(key)) continue;
         itemsByKey.set(key, item);
       }
+      const targetSite = siteFromUrl(data.url || target.url || "");
+      if (
+        includeRecommendationTopicTabs
+        && recommendationTopicMax > 0
+        && topicSourceReasons.has(target.collectionReason)
+        && recommendationTopicSelectors(targetSite || site).length
+      ) {
+        try {
+          const topicExpression = buildRecommendationTopicExpression({
+            site: targetSite || site,
+            maxTopics: recommendationTopicMax,
+            waitMs: recommendationTopicWaitMs,
+          });
+          const topicData = await evaluateTarget(target, topicExpression);
+          for (const topic of topicData.topics || []) {
+            pages.push({
+              targetId: target.id,
+              collectionReason: "recommendation-topic-tab",
+              recommendationTopic: topic.topic || "",
+              title: topic.title || topicData.title || "",
+              url: topic.url || topicData.url || "",
+              count: topic.items?.length || 0,
+              accessLimited: Boolean(topic.accessLimited),
+              warning: topic.warning || undefined,
+            });
+            if (topic.warning) warnings.push(`Recommendation topic ${topic.topic || ""} on ${topic.url || topicData.url || target.url}: ${topic.warning}`);
+            if (topic.accessLimited) warnings.push(`Access limitation detected on recommendation topic ${topic.topic || ""} at ${topic.url || topicData.url || target.url}`);
+            for (const item of topic.items || []) {
+              const enriched = {
+                ...item,
+                collectionReason: "recommendation-topic-tab",
+                recommendationTopic: topic.topic || item.recommendationTopic || "",
+              };
+              const key = recordKey(enriched);
+              if (!key || itemsByKey.has(key)) continue;
+              itemsByKey.set(key, enriched);
+            }
+          }
+        } catch (error) {
+          warnings.push(`Failed to evaluate recommendation topic tabs on ${target.url}: ${error.message}`);
+        }
+      }
     } catch (error) {
       warnings.push(`Failed to evaluate ${target.url}: ${error.message}`);
     }
@@ -1640,6 +1691,11 @@ async function cmdCollect(args) {
       seeded,
       recommendationUrls,
       seededRecommendations,
+      recommendationTopicTabs: {
+        enabled: includeRecommendationTopicTabs,
+        maxTopics: recommendationTopicMax,
+        waitMs: recommendationTopicWaitMs,
+      },
       pages,
       skippedTargets,
       warnings,
@@ -3247,6 +3303,7 @@ async function cmdRun(args) {
     maxOpenBatches: intOption(args, "max-open-batches", intOption(args, "max-batches", 1)),
     dryRun: boolOption(args, "dry-run"),
     includeRecommendationPages: !boolOption(args, "no-recommendation-pages"),
+    includeRecommendationTopicTabs: !boolOption(args, "no-recommendation-topic-tabs"),
     urls: values(args, "url"),
     plan,
   });
@@ -3276,6 +3333,9 @@ async function cmdRun(args) {
   const collectArgs = ["collect", "--site", site, ...common];
   for (const url of values(args, "url")) collectArgs.push("--url", url);
   if (!boolOption(args, "no-recommendation-pages")) collectArgs.push("--include-recommendation-pages");
+  if (boolOption(args, "no-recommendation-topic-tabs")) collectArgs.push("--no-recommendation-topic-tabs");
+  if (args["recommendation-topic-max"] !== undefined) collectArgs.push("--recommendation-topic-max", String(option(args, "recommendation-topic-max")));
+  if (args["recommendation-topic-wait-ms"] !== undefined) collectArgs.push("--recommendation-topic-wait-ms", String(option(args, "recommendation-topic-wait-ms")));
   const collect = runChildJson(collectArgs);
   steps.push({ step: "collect", ...collect.parsed });
   const candidatesFile = collect.parsed?.output;
@@ -3612,6 +3672,9 @@ Common options:
   --skip-auth-check       For collect/open/summarize-contacts: bypass login-state gate intentionally
   --url search-url        For collect: open a search/list URL as a background tab first
   --include-recommendation-pages For collect: open BOSS/Liepin recommendation list pages as a source
+  --no-recommendation-topic-tabs For collect: skip BOSS overview recommendation topic tabs
+  --recommendation-topic-max 4 For collect: max recommendation topic tabs to click per list page
+  --recommendation-topic-wait-ms 1600 For collect: wait after each recommendation topic click
   --no-recommendation-pages For run: do not auto-add BOSS/Liepin recommendation list pages
   --include-recommendations For collect: explicitly scrape detail-page recommendation links
   --all-tabs
