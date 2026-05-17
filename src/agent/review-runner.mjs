@@ -107,6 +107,8 @@ export function buildAgentReview(input, options = {}) {
       company: normalized.company || "",
       url: normalized.url || "",
       score: Number(normalized.score || 0),
+      review_mode: "rule_fallback",
+      semantic_review: false,
       ...decision,
       fit_summary: decision.reason,
       matched_evidence: reviewEvidenceTerms(normalized),
@@ -126,6 +128,9 @@ export function buildAgentReview(input, options = {}) {
 
   return {
     reviewed_at: (options.now || new Date()).toISOString(),
+    review_mode: "rule_fallback",
+    semantic_review: false,
+    semantic_review_required_for_contact: true,
     profile: profile?.id || requestedProfile || null,
     input: options.inputFile || null,
     summary,
@@ -158,6 +163,8 @@ function allowedCandidateIds(candidate) {
 
 export function selectedRecordsFromReview(review) {
   const decisions = Array.isArray(review?.selection) ? review.selection : [];
+  const semanticReview = review?.semantic_review === true;
+  const reviewMode = review?.review_mode || (semanticReview ? "semantic_job_fit" : "rule_fallback");
   return decisions
     .filter((item) => item.decision === "select")
     .map((item) => {
@@ -169,6 +176,8 @@ export function selectedRecordsFromReview(review) {
       if (item.id && allowedIds.size && !allowedIds.has(String(item.id))) {
         throw new Error(`Selected review item id is not present in candidate evidence: ${item.id}`);
       }
+      const itemSemanticReview = item.semantic_review === true || semanticReview;
+      const itemReviewMode = item.review_mode || reviewMode;
       return {
         ...base,
         id: item.id || candidateReviewId(base),
@@ -177,11 +186,20 @@ export function selectedRecordsFromReview(review) {
         company: item.company || base.company,
         url: item.url || base.url,
         score: item.score ?? base.score,
+        review_mode: itemReviewMode,
+        semantic_review: itemSemanticReview,
         review: {
           decision: item.decision,
           confidence: item.confidence,
+          semantic_fit: item.semantic_fit,
+          fit_summary: item.fit_summary,
           reason: item.reason,
           risk: item.risk,
+          matched_evidence: Array.isArray(item.matched_evidence) ? item.matched_evidence : [],
+          evidence_quotes: Array.isArray(item.evidence_quotes) ? item.evidence_quotes : [],
+          risk_flags: Array.isArray(item.risk_flags) ? item.risk_flags : [],
+          missing_information: Array.isArray(item.missing_information) ? item.missing_information : [],
+          suggested_user_question: item.suggested_user_question || "",
         },
       };
     });

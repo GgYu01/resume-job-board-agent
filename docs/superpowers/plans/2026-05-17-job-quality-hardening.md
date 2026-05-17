@@ -6,6 +6,13 @@
 
 **Architecture:** Keep live browser operations deterministic and local, but add stronger gates before external actions. `collect` must only inspect intended search/list targets unless recommendation collection is explicitly requested; `rank` must record hard-filter evidence; `open`/`open-batches --trigger-contact` must refuse unaudited input unless explicitly overridden.
 
+**2026-05-17 semantic review supersession:** The profile-specific keyword hard
+gate portion of this plan was replaced by a semantic-review production gate.
+`ai-agent-dev` no longer uses `hard_filters.required_any_terms` or
+`hard_filters.reject_terms` as final role-family gates. `rank` remains
+retrieval/evidence, while `--trigger-contact --input` requires validated
+`agent-review --review-output` records with semantic fit and evidence quotes.
+
 **Tech Stack:** Node.js ESM, TypeScript CLI seam, YAML role profiles, `node:test`, Edge Beta CDP harness.
 
 ---
@@ -28,7 +35,7 @@ Add helpers that classify targets as `seeded-url`, `search-list-tab`, `detail-re
 
 Write `meta.pages[].collectionReason` and `meta.skippedTargets[]` into candidates artifacts so later audits can explain where each candidate came from.
 
-### Task 2: Profile Hard Gates
+### Task 2: Generic Hard Filter Support (Superseded For `ai-agent-dev`)
 
 **Files:**
 - Modify: `src/rank/keyword-ranker.mjs`
@@ -39,15 +46,19 @@ Write `meta.pages[].collectionReason` and `meta.skippedTargets[]` into candidate
 
 - [x] **Step 1: Add failing tests**
 
-Add fixtures asserting that AI Agent profile hard-rejects low-fit titles even when they contain weak technical keywords.
+Historical step: add fixtures for hard-filter behavior. This no longer means
+`ai-agent-dev` should hard-reject role families by keyword.
 
 - [x] **Step 2: Implement profile hard filters**
 
-Support `hard_filters.reject_terms` and `hard_filters.required_any_terms`. Reject terms must create `hard-filter:reject-term:<term>` evidence. Missing required terms must create `hard-filter:missing-required-any:<terms>`.
+Keep generic support for `hard_filters.reject_terms` and
+`hard_filters.required_any_terms` for profiles that explicitly need objective
+string gates. `ai-agent-dev` does not use them as final fit criteria.
 
 - [x] **Step 3: Harden AI Agent profile**
 
-Add target evidence terms and obvious low-fit rejection terms to `configs/roles/ai-agent-dev.yaml`.
+Superseded: remove profile-specific role-family hard gates from
+`configs/roles/ai-agent-dev.yaml` and rely on semantic review before contact.
 
 ### Task 3: Contact Audit Gate
 
@@ -57,11 +68,16 @@ Add target evidence terms and obvious low-fit rejection terms to `configs/roles/
 
 - [x] **Step 1: Add failing tests**
 
-Add a dry-run test where `open-batches --trigger-contact --input manual-selection.json` refuses records without review/score/explain evidence.
+Add dry-run tests where `open-batches --trigger-contact --input` refuses
+manual selections and rule-fallback selections without validated semantic
+review evidence.
 
 - [x] **Step 2: Implement guard**
 
-When `--trigger-contact` is used with `--input`, require selected records to include review decision evidence and rank evidence. Direct `--url` remains allowed because it is an explicit single-target user action. Add `--allow-unaudited-contact` as an explicit override.
+When `--trigger-contact` is used with `--input`, require selected records to
+include validated semantic review decision evidence and rank evidence. Direct
+`--url` remains allowed because it is an explicit single-target user action.
+Add `--allow-unaudited-contact` as an explicit override.
 
 ### Task 4: Evidence Reports And Docs
 

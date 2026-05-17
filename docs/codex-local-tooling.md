@@ -372,9 +372,11 @@ Current conclusion:
   supported-site contact cannot be verified, unless `--allow-contact-failures`
   is passed intentionally.
 - `--trigger-contact` with `--input` now requires records produced through
-  `agent-review`/`select` with review, score, and explain evidence. Direct
-  `--url` remains the explicit one-off path; `--allow-unaudited-contact` is the
-  manual override for reviewed exceptional cases.
+  `agent-review --review-output`/`select` with `review_mode=semantic_job_fit`,
+  `semantic_review=true`, semantic fit, evidence quotes, score, and explain
+  evidence. Direct `--url` remains the explicit one-off path;
+  `--allow-unaudited-contact` is the manual override for reviewed exceptional
+  cases.
 - `feedback` appends regression metrics to
   `.tmp/job_board_harness/regression_metrics.jsonl`.
 - Keep the project-local skills under `skills/`: `job-board-page-opener`,
@@ -477,13 +479,13 @@ node tools\job_board_harness.mjs auth --site both --reuse-page
   showed `collect --url` evaluating unrelated same-host tabs, including generic
   BOSS search pages, because host matching was too broad. Default collection is
   now seed-target/search-list scoped and records skipped targets.
-- `configs/roles/ai-agent-dev.yaml` now uses `hard_filters.required_any_terms`
-  and `hard_filters.reject_terms` so weak matches such as generic Python,
-  financial/loan roles, sales, customer service, assistant, clerk, operator,
-  and testing-assistant jobs are hard-rejected with auditable reasons.
+- `configs/roles/ai-agent-dev.yaml` no longer uses
+  `hard_filters.required_any_terms` or `hard_filters.reject_terms` as final
+  role-family gates. Keyword score remains a retrieval/debug signal, while
+  validated semantic review is the production quality gate before contact.
 - Rank reports now print hard-filter and penalty samples in the typical skip
   section, making false positives easier to debug after a run.
 - Tooling review: keep the existing project CDP harness and project-local
-  skills. No new MCP server is needed; a future model-backed semantic reviewer
-  should consume `agent-review --prepare` / `--review-output` rather than
-  bypassing deterministic guards.
+  skills. No new MCP server is needed; model-backed semantic review should
+  consume `agent-review --prepare` / `--review-output` rather than bypassing
+  deterministic browser and contact guards.

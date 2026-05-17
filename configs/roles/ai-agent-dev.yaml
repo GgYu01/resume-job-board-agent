@@ -1,12 +1,12 @@
 id: ai-agent-dev
 label: AI Agent 工程化
-version: 1
+version: 2
 created_by: codex-agent
-last_reviewed: "2026-05-15"
+last_reviewed: "2026-05-17"
 
 user_intent:
   summary: "筛选 AI Agent、Codex、浏览器自动化、RAG、LLM 应用工程化相关岗位"
-  final_surface: "open_detail_pages_only"
+  final_surface: "semantic_review_then_open_detail_pages"
 
 must_have:
   - term: "AI Agent"
@@ -49,6 +49,12 @@ negative:
     weight: -30
   - term: "客服"
     weight: -30
+  - term: "金融"
+    weight: -24
+  - term: "产品经理"
+    weight: -24
+  - term: "测试工程师"
+    weight: -20
   - term: "讲师"
     weight: -20
   - term: "运营"
@@ -60,70 +66,6 @@ hard_filters:
   min_salary: null
   max_experience_years: null
   cities: []
-  required_any_terms:
-    - "AI Agent"
-    - "Agent"
-    - "智能体"
-    - "LLM"
-    - "RAG"
-    - "大模型"
-    - "AIGC"
-    - "OpenAI"
-    - "Codex"
-    - "MCP"
-    - "浏览器自动化"
-    - "模型部署"
-    - "AI"
-  reject_terms:
-    - "普工"
-    - "流水线"
-    - "操作工"
-    - "产线"
-    - "销售"
-    - "电销"
-    - "电话销售"
-    - "客服"
-    - "陪玩"
-    - "金融"
-    - "贷款"
-    - "理财"
-    - "保险"
-    - "会计"
-    - "财务"
-    - "审计"
-    - "文员"
-    - "行政"
-    - "助理"
-    - "产品经理"
-    - "项目经理"
-    - "市场"
-    - "商务"
-    - "运营"
-    - "主播"
-    - "门店"
-    - "店员"
-    - "收银"
-    - "招商"
-    - "推广"
-    - "人事"
-    - "HR"
-    - "讲师"
-    - "培训"
-    - "教师"
-    - "质检"
-    - "测试工程师"
-    - "软件测试"
-    - "测试开发"
-    - "自动化测试"
-    - "功能测试"
-    - "车身域测试"
-    - "实车测试"
-    - "元一天"
-    - "日结"
-    - "按天结算"
-    - "测试助理"
-    - "软件测试助理"
-    - "纯测试"
   reject_internship: true
   reject_part_time: true
 
@@ -135,6 +77,9 @@ review_policy:
   codex_review_borderline_n: 20
   require_evidence: true
   allow_uncertain: false
+  semantic_review_required_for_contact: true
+  recommended_model: "gpt-5.4-mini"
+  recommended_reasoning_effort: "medium"
 
 batch_policy:
   max_per_batch: 15

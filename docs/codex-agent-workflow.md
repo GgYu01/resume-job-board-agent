@@ -36,7 +36,8 @@ When card text is not enough, run a controlled detail extraction before Codex re
 ```powershell
 .\tools\job-board.cmd extract-details --input <selection.json> --out <details.json> --concurrency 2
 .\tools\job-board.cmd rank --input <details.json> --profile ai-agent-dev
-.\tools\job-board.cmd agent-review --input <ranked-details.json> --profile ai-agent-dev
+.\tools\job-board.cmd agent-review --input <ranked-details.json> --profile ai-agent-dev --prepare --out <agent_review_request.json>
+.\tools\job-board.cmd agent-review --input <ranked-details.json> --profile ai-agent-dev --review-output <codex_review.json> --out <agent_review.json>
 ```
 
 `extract-details` stops with a non-zero status when captcha, verification, or
@@ -61,7 +62,10 @@ Codex can then write a review JSON and validate it:
 .\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev --review-output <codex_review.json> --out <agent_review.json>
 ```
 
-The deterministic `agent-review` fallback can still emit JSON directly:
+The deterministic `agent-review` fallback can still emit JSON directly for
+diagnostics and detail-opening dry-runs. It is tagged as
+`review_mode: "rule_fallback"` / `semantic_review: false` and is not accepted
+by `open` or `open-batches --trigger-contact --input`.
 
 ```json
 {

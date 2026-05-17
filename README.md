@@ -19,7 +19,8 @@ The project direction is intentionally small and local:
 .\tools\job-board.cmd rank --input <candidates.json> --profile ai-agent-dev
 .\tools\job-board.cmd extract-details --input <selection.json> --out <details.json>
 .\tools\job-board.cmd rank --input <details.json> --profile ai-agent-dev
-.\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev
+.\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev --prepare --out <agent_review_request.json>
+.\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev --review-output <codex_review.json> --out <agent_review.json>
 .\tools\job-board.cmd select --review <agent_review.json>
 .\tools\job-board.cmd open-batches --input <selection.json> --max-per-batch 15 --cooldown 45s --jitter 10s
 .\tools\job-board.cmd feedback --run <run_id> --accepted <id> --false-positive <id>
@@ -47,6 +48,11 @@ Codex review contract:
 .\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev --prepare --out <agent_review_request.json>
 .\tools\job-board.cmd agent-review --input <ranked.json> --profile ai-agent-dev --review-output <codex_review.json> --out <agent_review.json>
 ```
+
+`rank` and the deterministic `agent-review` fallback are retrieval/diagnostic
+signals only. Any `--trigger-contact --input` production flow requires a
+validated semantic review from `agent-review --review-output`; rule fallback
+records are refused unless `--allow-unaudited-contact` is passed intentionally.
 
 Fixture dry-run:
 

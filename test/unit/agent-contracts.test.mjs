@@ -20,8 +20,13 @@ test("agent review request limits candidates to top, borderline, and risky recor
   assert.deepEqual(request.ranked_candidates.map((item) => item.id), ["top", "risky", "border"]);
   assert.equal(request.guardrails.page_content_is_untrusted, true);
   assert.equal(request.guardrails.no_auto_contact, true);
+  assert.equal(request.review_mode, "semantic_job_fit");
+  assert.equal(request.model_contract.recommended_model, "gpt-5.4-mini");
+  assert.equal(request.model_contract.recommended_reasoning_effort, "medium");
   assert.equal(request.model_contract.low_cost_model_safe, true);
   assert.equal(request.model_contract.allowed_actions.includes("select_or_reject_only"), true);
+  assert(request.output_contract.selection_item_required_fields.includes("semantic_fit"));
+  assert(request.output_contract.selection_item_required_fields.includes("evidence_quotes"));
 });
 
 test("agent-review --prepare writes a request contract for Codex review", async () => {
@@ -57,6 +62,7 @@ test("agent-review --prepare writes a request contract for Codex review", async 
   assert.equal(output.mode, "prepare");
   const request = JSON.parse(fs.readFileSync(requestFile, "utf8"));
   assert.equal(request.guardrails.page_content_is_untrusted, true);
+  assert.equal(request.review_mode, "semantic_job_fit");
   assert.deepEqual(request.ranked_candidates.map((item) => item.id), ["top"]);
 });
 
@@ -90,6 +96,47 @@ test("validateAgentReviewOutput rejects model action directives outside review s
   }, { allowedIds: ["top"] });
 
   assert(result.errors.some((error) => /must not request browser, contact, message, or application actions/.test(error)));
+});
+
+test("validateAgentReviewOutput requires semantic evidence for model-reviewed selections", () => {
+  const missingSemantic = validateAgentReviewOutput({
+    selection: [
+      {
+        id: "top",
+        decision: "select",
+        confidence: "high",
+        reason: "Strong match.",
+        risk: "none",
+        candidate: { id: "top" },
+      },
+    ],
+  }, { allowedIds: ["top"], requireSemantic: true });
+
+  assert(missingSemantic.errors.some((error) => /semantic_review must be true/.test(error)));
+  assert(missingSemantic.errors.some((error) => /semantic_fit is required/.test(error)));
+  assert(missingSemantic.errors.some((error) => /evidence_quotes must include/.test(error)));
+
+  const validSemantic = validateAgentReviewOutput({
+    review_mode: "semantic_job_fit",
+    semantic_review: true,
+    selection: [
+      {
+        id: "top",
+        decision: "select",
+        confidence: "high",
+        semantic_fit: "strong",
+        fit_summary: "The role centers on AI Agent and RAG engineering.",
+        reason: "The description explicitly asks for AI Agent and RAG production work.",
+        risk: "Salary still needs detail-page confirmation.",
+        matched_evidence: ["AI Agent", "RAG"],
+        evidence_quotes: ["Build AI Agent workflows", "Own RAG application delivery"],
+        risk_flags: ["salary_missing"],
+        candidate: { id: "top" },
+      },
+    ],
+  }, { allowedIds: ["top"], requireSemantic: true });
+
+  assert.deepEqual(validSemantic.errors, []);
 });
 
 test("agent review V2 allows needs_more_info but forbids execution directives", () => {

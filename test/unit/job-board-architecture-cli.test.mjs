@@ -96,6 +96,8 @@ test("agent-review emits a structured review contract and select consumes it", (
   assert.equal(reviewSummary.output, reviewFile);
   const review = JSON.parse(fs.readFileSync(reviewFile, "utf8"));
   assert.equal(review.profile, "ai-agent-dev");
+  assert.equal(review.review_mode, "rule_fallback");
+  assert.equal(review.semantic_review, false);
   assert.equal(review.summary.total_reviewed, 2);
   assert(review.selection.some((item) => item.id === "candidate_boss_good" && item.decision === "select"));
   assert(review.selection.every((item) => item.reason && item.confidence));
@@ -111,6 +113,9 @@ test("agent-review emits a structured review contract and select consumes it", (
   assert.equal(selectSummary.selected_count, 1);
   const selection = JSON.parse(fs.readFileSync(selectionFile, "utf8"));
   assert.deepEqual(selection.selected.map((item) => item.id), ["candidate_boss_good"]);
+  assert.equal(selection.meta.review_mode, "rule_fallback");
+  assert.equal(selection.meta.semantic_review, false);
+  assert.equal(selection.selected[0].semantic_review, false);
   assert.equal(selection.selected[0].review.reason.includes("AI Agent"), true);
 });
 
@@ -240,6 +245,158 @@ test("open-batches trigger-contact refuses unaudited selection input", () => {
   assert.notEqual(failed.status, 0);
   assert.match(failed.stderr, /unaudited contact input/i);
   assert.equal(fs.existsSync(queueFile), false);
+});
+
+test("open-batches trigger-contact refuses rule-fallback review selections", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_contact_rule_fallback_"));
+  const env = { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir };
+  const input = path.join(stateDir, "rule_fallback_selection.json");
+  const queueFile = path.join(stateDir, "queue.json");
+  fs.writeFileSync(
+    input,
+    `${JSON.stringify(
+      {
+        selected: [
+          {
+            id: "rule-fallback-selected",
+            site: "boss",
+            title: "AI Agent Engineer",
+            url: "https://www.zhipin.com/job_detail/rule-fallback.html?securityId=sec",
+            score: 80,
+            semantic_review: false,
+            review_mode: "rule_fallback",
+            review: {
+              decision: "select",
+              confidence: "high",
+              reason: "Keyword score selected this record.",
+              risk: "Not semantically reviewed.",
+            },
+            explain: {
+              matched: [{ term: "AI Agent", weight: 36, field: "title" }],
+              negative: [],
+              hard_filters: [],
+            },
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const failed = spawnSync(process.execPath, [
+    HARNESS,
+    "open-batches",
+    "--input",
+    input,
+    "--queue",
+    queueFile,
+    "--trigger-contact",
+    "--dry-run",
+    "--allow-previous",
+  ], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env,
+  });
+
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, /semantic agent review/i);
+  assert.equal(fs.existsSync(queueFile), false);
+});
+
+test("semantic agent review output survives select and can dry-run trigger-contact", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_contact_semantic_"));
+  const env = { ...process.env, JOB_BOARD_HARNESS_STATE_DIR: stateDir };
+  const rankedFile = path.join(stateDir, "ranked.json");
+  const modelReviewFile = path.join(stateDir, "model_review.json");
+  const reviewFile = path.join(stateDir, "agent_review.json");
+  const selectionFile = path.join(stateDir, "selection.json");
+  const queueFile = path.join(stateDir, "queue.json");
+  const candidate = {
+    id: "semantic-selected",
+    site: "boss",
+    title: "AI Agent Engineer",
+    company: "Future AI",
+    url: "https://www.zhipin.com/job_detail/semantic-selected.html?securityId=sec",
+    score: 86,
+    explain: {
+      matched: [{ term: "AI Agent", weight: 36, field: "title" }],
+      negative: [],
+      hard_filters: [],
+    },
+  };
+
+  fs.writeFileSync(rankedFile, `${JSON.stringify({ ranked: [candidate] }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(
+    modelReviewFile,
+    `${JSON.stringify(
+      {
+        review_mode: "semantic_job_fit",
+        semantic_review: true,
+        selection: [
+          {
+            id: "semantic-selected",
+            decision: "select",
+            confidence: "high",
+            semantic_fit: "strong",
+            fit_summary: "AI Agent engineering is the core role scope.",
+            reason: "The job title and card evidence both center on AI Agent delivery.",
+            risk: "Need detail-page confirmation before any non-default message.",
+            matched_evidence: ["AI Agent"],
+            evidence_quotes: ["AI Agent Engineer"],
+            risk_flags: [],
+            candidate,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const reviewSummary = JSON.parse(runHarness([
+    "agent-review",
+    "--input",
+    rankedFile,
+    "--profile",
+    "ai-agent-dev",
+    "--review-output",
+    modelReviewFile,
+    "--out",
+    reviewFile,
+  ], { env }));
+  assert.equal(reviewSummary.mode, "validate");
+
+  const selectSummary = JSON.parse(runHarness([
+    "select",
+    "--review",
+    reviewFile,
+    "--out",
+    selectionFile,
+  ], { env }));
+  assert.equal(selectSummary.selected_count, 1);
+  const selection = JSON.parse(fs.readFileSync(selectionFile, "utf8"));
+  assert.equal(selection.meta.review_mode, "semantic_job_fit");
+  assert.equal(selection.meta.semantic_review, true);
+  assert.equal(selection.selected[0].semantic_review, true);
+  assert.equal(selection.selected[0].review.semantic_fit, "strong");
+  assert.deepEqual(selection.selected[0].review.evidence_quotes, ["AI Agent Engineer"]);
+
+  const dryRun = JSON.parse(runHarness([
+    "open-batches",
+    "--input",
+    selectionFile,
+    "--queue",
+    queueFile,
+    "--trigger-contact",
+    "--dry-run",
+    "--allow-previous",
+  ], { env }));
+  assert.equal(dryRun.dry_run, true);
+  assert.equal(dryRun.queue.remaining, 1);
 });
 
 test("select drops duplicate and previously opened semantic jobs", () => {

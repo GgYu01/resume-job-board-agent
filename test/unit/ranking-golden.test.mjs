@@ -22,50 +22,52 @@ test("AI Agent ranking golden keeps relevant jobs above sales noise with explain
   assert(ranked[0].explain.matched.length > 0);
   assert.equal(ranked.some((item, index) => item.id === "noise-sales" && index < 1), false);
   const sales = ranked.find((item) => item.id === "noise-sales");
-  assert(sales.explain.negative.some((item) => item.term === "销售"));
+  assert(sales.explain.negative.some((item) => item.term.includes("销售")));
 });
 
-test("AI Agent profile hard rejects low-fit job families and weak technical keyword matches", () => {
+test("AI Agent profile does not use job-family keywords as final hard rejects", () => {
   const profile = loadRoleProfile(ROOT, "ai-agent-dev");
+  assert.equal(profile.hard_filters.required_any_terms, undefined);
+  assert.equal(profile.hard_filters.reject_terms, undefined);
 
   const finance = scoreRecord({
     id: "finance-python",
-    title: "金融量化编程师 Python Pine",
+    title: "金融量化程序员 Python Pine",
     cardText: "金融 贷款 理财 Python Pine",
   }, { profile });
-  assert(finance.hardRejected.some((reason) => reason === "reject-term:金融"));
+  assert.deepEqual(finance.hardRejected, []);
 
   const weakPython = scoreRecord({
     id: "weak-python",
     title: "Python开发工程师",
     cardText: "负责普通后台系统开发和维护脚本。",
   }, { profile });
-  assert(weakPython.hardRejected.some((reason) => reason.startsWith("missing-required-any:")));
+  assert.deepEqual(weakPython.hardRejected, []);
 
   const testEngineer = scoreRecord({
     id: "test-engineer",
     title: "中级测试工程师",
     cardText: "大模型 智能体 Python Agent 自动化",
   }, { profile });
-  assert(testEngineer.hardRejected.some((reason) => reason === "reject-term:测试工程师"));
+  assert.deepEqual(testEngineer.hardRejected, []);
 
   const productManager = scoreRecord({
     id: "product-manager",
-    title: "资深web3产品经理｜OTC 交易 × AI Agent",
+    title: "资深web3产品经理 OTC 交易 x AI Agent",
     cardText: "负责 AI Agent 产品规划和交易业务需求。",
   }, { profile });
-  assert(productManager.hardRejected.some((reason) => reason === "reject-term:产品经理"));
+  assert.deepEqual(productManager.hardRejected, []);
 
   const dailyRate = scoreRecord({
     id: "daily-rate",
     title: "智能体开发工程师 360元一天",
     cardText: "Python 智能体开发，按天结算。",
   }, { profile });
-  assert(dailyRate.hardRejected.some((reason) => reason === "reject-term:元一天"));
+  assert.deepEqual(dailyRate.hardRejected, []);
 
   const relevant = scoreRecord({
     id: "agent-python",
-    title: "Python开发【Agent智能体】",
+    title: "Python开发 Agent智能体",
     cardText: "负责 AI Agent、RAG、LLM 应用工程化。",
   }, { profile });
   assert.deepEqual(relevant.hardRejected, []);

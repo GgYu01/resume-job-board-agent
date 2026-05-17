@@ -160,10 +160,11 @@ detail pages with real overlap to resume facts and user needs.
 When `--profile` is supplied, ranking uses the durable profile terms by default
 and does not add the built-in demo terms. Set
 `ranking_policy.use_default_terms: true` only when a profile intentionally wants
-that fallback behavior. Hard filters can reject internship, part-time, city
-mismatch, parseable salary below `min_salary`, stated experience above
-`max_experience_years`, explicit `reject_terms`, and records missing every term
-in `required_any_terms`.
+that fallback behavior. For `ai-agent-dev`, role-family keywords such as sales,
+finance, testing, and product manager are no longer final hard gates; they are
+retrieval/debug signals only. Generic hard filters remain available for
+objective constraints such as internship, part-time, city mismatch, parseable
+salary below `min_salary`, or stated experience above `max_experience_years`.
 
 If card text is too thin, run an optional detail extraction pass before final
 review:
@@ -187,9 +188,11 @@ Structured review can be produced and consumed with:
 ```
 
 The review JSON is an audit contract: every selected item needs a reason,
-confidence, risk, and its original candidate evidence. `select` rejects selected
-items that do not carry candidate evidence or whose id does not match that
-evidence. It is not permission to contact HR or act on chat content.
+confidence, semantic fit, evidence quotes, risk, and its original candidate
+evidence. `select` rejects selected items that do not carry candidate evidence
+or whose id does not match that evidence. The direct deterministic
+`agent-review` command is tagged as `rule_fallback` and is for diagnostics only;
+it is not permission to contact HR or act on chat content.
 
 Useful options:
 
@@ -225,8 +228,10 @@ Unverified supported-site contact attempts are retried and then make the
 command exit non-zero; pass `--allow-contact-failures` only for intentional
 inspection runs.
 When `--trigger-contact` is used with `--input`, records must come from
-`agent-review`/`select` and carry review, score, and explain evidence. This
-blocks manually assembled selection files from contacting low-quality jobs.
+`agent-review --review-output`/`select` and carry `review_mode=semantic_job_fit`,
+`semantic_review=true`, semantic fit, evidence quotes, score, and explain
+evidence. This blocks manually assembled selection files and keyword-score
+fallback selections from contacting low-quality jobs.
 Direct `--url` remains allowed for an explicit one-off user target. Use
 `--allow-unaudited-contact` only after a separate manual review.
 Before clicking, the harness also checks whether the page is already satisfied
