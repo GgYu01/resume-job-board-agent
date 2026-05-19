@@ -15,12 +15,15 @@ Last reviewed: 2026-05-15
 
 `open` and `open-batches` may trigger the job-site default communication flow only when the user explicitly requests `--trigger-contact`. Those receipts should record preflight, click, verification, and close status, but still must not store raw cookie values, passwords, or exported browser state. Resolved contact pages may close automatically; failed or uncertain pages must remain open for user inspection.
 
+When the user explicitly requests post-contact messaging, `--send-contact-followup` may run only together with `--trigger-contact`. The main message should be supplied from an ignored local file such as `.tmp/job_board_harness/followup_message.txt` or from an explicit CLI argument; do not commit personal message text. Receipts must record follow-up exchange clicks, BOSS platform-unavailable exchange states, default-priority resume selection, modal confirmation steps, message counts, verification status, failures, and hashed message-plan metadata. Store full personal message bodies only in ignored local paths.
+
 Allowed:
 
 - Summarize.
 - Classify.
 - Draft text for user review.
 - Trigger BOSS/Liepin default contact only through explicit `--trigger-contact`.
+- Send user-supplied follow-up messages only through explicit `--send-contact-followup` after contact verification.
 
 Not allowed:
 

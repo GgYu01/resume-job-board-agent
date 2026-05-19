@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -63,6 +64,14 @@ import {
   contactVerificationExpression,
   contactVerificationOutcome,
 } from "../sites/contact-actions.mjs";
+import {
+  DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS,
+  DEFAULT_CONTACT_FOLLOWUP_RESUME_NOTE,
+  DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS,
+  DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS,
+  contactFollowupExpression,
+  normalizeContactFollowupMessages,
+} from "../sites/contact-followup.mjs";
 import {
   alreadyOpened as alreadyOpenedCore,
   appendOpenedState as appendOpenedStateCore,
@@ -681,12 +690,14 @@ function authExpression() {
     const text = norm(document.body ? document.body.innerText : "");
     const all = text + " " + location.href + " " + (document.title || "");
     const loginRequired = /\\u767b\\u5f55|\\u6ce8\\u518c|\\u626b\\u7801|\\u624b\\u673a\\u53f7|\\u5bc6\\u7801\\u767b\\u5f55|\\u8bf7\\u767b\\u5f55|login|sign\\s*in/i.test(all);
+    const loginPageSignals = /\\u767b\\u5f55\\s*\\/\\s*\\u6ce8\\u518c|\\u767b\\u5f55\\u8d26\\u53f7|\\u7acb\\u5373\\u767b\\u5f55|\\u767b\\u5f55\\u67e5\\u770b\\u5b8c\\u6574\\u5185\\u5bb9|\\/web\\/user\\//i.test(all);
     const loggedInSignals = /\\u6211\\u7684\\u7b80\\u5386|\\u6211\\u7684\\u730e\\u8058|\\u6c9f\\u901a|\\u6d88\\u606f|\\u5df2\\u6295\\u9012|\\u804c\\u4f4d\\u63a8\\u8350|\\u5bf9\\u6211\\u611f\\u5174\\u8da3|\\u5728\\u7ebf\\u7b80\\u5386|\\u6211\\u7684BOSS/i.test(all);
     const accessLimited = /\\u5b89\\u5168\\u9a8c\\u8bc1|\\u9a8c\\u8bc1\\u7801|\\u8bbf\\u95ee\\u8fc7\\u4e8e\\u9891\\u7e41|\\u6ed1\\u5757|captcha|verify|_security_check/i.test(all);
     return JSON.stringify({
       url: location.href,
       title: document.title || "",
       loginRequired,
+      loginPageSignals,
       loggedInSignals,
       accessLimited,
       textLength: text.length
@@ -763,6 +774,7 @@ async function inspectOpenedAccessLimits(port, openedRecords) {
 
 function classifyAuth(pageState) {
   if (pageState.accessLimited) return "needs-user-action";
+  if (pageState.loginPageSignals) return pageState.authCookieNameHints?.length ? "needs-user-action" : "login-required";
   if (pageState.loggedInSignals && !pageState.loginRequired) return "logged-in";
   if (pageState.loggedInSignals && pageState.authCookieNameHints?.length) return "logged-in";
   if (pageState.loginRequired && !pageState.authCookieNameHints?.length) return "login-required";
@@ -849,6 +861,7 @@ async function checkAuthForSite(port, site, { fresh = false, probeRecord = null 
       url: pageState.url,
       title: pageState.title,
       loginRequired: pageState.loginRequired,
+      loginPageSignals: pageState.loginPageSignals,
       loggedInSignals: pageState.loggedInSignals,
       accessLimited: pageState.accessLimited,
       textLength: pageState.textLength,
@@ -2674,8 +2687,18 @@ function contactVerificationCandidate(target, record, targetId) {
   const site = String(record.site || "").toLowerCase();
   const url = String(target.url || "");
   if (site === "boss") return /zhipin\.com\/web\/geek\/(?:chat|message)|zhipin\.com\/.*chat/i.test(url);
-  if (site === "liepin") return /liepin\.com\/(?:message|im|chat)|liepin\.com\/.*\/im/i.test(url);
+  if (site === "liepin") return /c\.liepin\.com|liepin\.com\/(?:message|im|chat)|liepin\.com\/.*\/im/i.test(url);
   return false;
+}
+
+function contactExpectedConversation(record = {}, triggerResult = {}) {
+  const expected = triggerResult.expectedConversation || {};
+  const compact = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  return {
+    jobTitle: compact(expected.jobTitle || record.jobTitle || record.position || record.title || record.titleText),
+    recruiter: compact(expected.recruiter || record.recruiter || record.bossName || record.contactName),
+    company: compact(expected.company || record.company || record.companyName),
+  };
 }
 
 export function createContactActionRunner({
@@ -2700,12 +2723,14 @@ export function createContactActionRunner({
     const errors = [];
     for (const target of candidates) {
       try {
-        const verification = await evaluateTargetImpl(target, contactVerificationExpression(record.site));
+        const expectedConversation = contactExpectedConversation(record, triggerResult);
+        const verification = await evaluateTargetImpl(target, contactVerificationExpression(record.site, expectedConversation));
         const outcome = contactVerificationOutcome({ ...triggerResult, site: record.site }, { ...verification, site: record.site });
         return {
           ...verification,
           ...outcome,
           rawVerified: Boolean(verification.verified),
+          expectedConversation,
           targetId: target.id,
         };
       } catch (error) {
@@ -2722,6 +2747,100 @@ export function createContactActionRunner({
       signals: [],
       error: errors.length ? "verification-evaluation-failed" : "verification-target-not-found",
       errors,
+    };
+  }
+
+  async function runContactFollowup(port, record, preferredTargetId, followupOptions = {}) {
+    if (!followupOptions.enabled) return { enabled: false, attempted: false, verified: false, status: "disabled" };
+    const targets = await listTargetsImpl(port).catch(() => []);
+    const candidates = targets
+      .filter((target) => contactVerificationCandidate(target, record, preferredTargetId || record.targetId))
+      .sort((a, b) => {
+        if (a.id === preferredTargetId && b.id !== preferredTargetId) return -1;
+        if (b.id === preferredTargetId && a.id !== preferredTargetId) return 1;
+        const aChat = /chat|message|im|c\.liepin\.com/i.test(`${a.url || ""} ${a.title || ""}`);
+        const bChat = /chat|message|im|c\.liepin\.com/i.test(`${b.url || ""} ${b.title || ""}`);
+        if (aChat !== bChat) return aChat ? -1 : 1;
+        return 0;
+      });
+    const errors = [];
+    for (const target of candidates) {
+      try {
+        const result = await evaluateTargetImpl(target, contactFollowupExpression(record.site, followupOptions));
+        return {
+          enabled: true,
+          ...result,
+          attempted: true,
+          targetId: target.id,
+          messagePlan: contactFollowupMessagePlan(followupOptions),
+        };
+      } catch (error) {
+        errors.push({ targetId: target.id, url: target.url, error: error.message });
+      }
+    }
+    return {
+      enabled: true,
+      attempted: false,
+      verified: false,
+      status: candidates.length ? "followup-evaluation-failed" : "followup-target-not-found",
+      error: candidates.length ? "followup-evaluation-failed" : "followup-target-not-found",
+      errors,
+      messagePlan: contactFollowupMessagePlan(followupOptions),
+    };
+  }
+
+  async function attemptContactTrigger(port, record, target, { attemptsLimit, retryDelayMs, verifyDelayMs, requireConversationOpen = false }) {
+    const attempts = [];
+    let final = null;
+    for (let attempt = 1; attempt <= attemptsLimit; attempt += 1) {
+      if (attempt > 1 && retryDelayMs > 0) await delayImpl(retryDelayMs);
+      try {
+        const result = await evaluateTargetImpl(target, contactTriggerExpression(record.site));
+        let verification = null;
+        if (result.clicked) {
+          verification = await verifyContactAction(port, record, record.targetId, result, verifyDelayMs);
+        }
+        const attemptResult = {
+          attempt,
+          ...result,
+          verified: Boolean(verification?.verified),
+          messageSent: Boolean(verification?.messageSent),
+          verification,
+        };
+        attempts.push(attemptResult);
+        if (attemptResult.verified && (!requireConversationOpen || attemptResult.verification?.conversationOpen)) {
+          final = attemptResult;
+          break;
+        }
+        if (result.supported === false) {
+          final = attemptResult;
+          break;
+        }
+      } catch (error) {
+        const attemptResult = {
+          attempt,
+          attempted: true,
+          clicked: false,
+          verified: false,
+          messageSent: false,
+          error: error.message,
+        };
+        attempts.push(attemptResult);
+      }
+    }
+    const rawLast = final || attempts[attempts.length - 1] || {
+      attempted: true,
+      clicked: false,
+      verified: false,
+      messageSent: false,
+    };
+    const last = requireConversationOpen && rawLast.verified && !rawLast.verification?.conversationOpen
+      ? { ...rawLast, verified: false, error: rawLast.error || "conversation-not-opened-after-contact" }
+      : rawLast;
+    return {
+      attempts,
+      final,
+      last,
     };
   }
 
@@ -2749,6 +2868,7 @@ export function createContactActionRunner({
     maxAttempts = DEFAULT_CONTACT_MAX_ATTEMPTS,
     betweenRecordsDelayMs = DEFAULT_CONTACT_BETWEEN_RECORDS_MS,
     closeResolvedPages = true,
+    followup = {},
   } = {}) {
     if (!enabled || !openedRecords.length) return [];
     if (delayMs > 0) await delayImpl(delayMs);
@@ -2757,6 +2877,7 @@ export function createContactActionRunner({
     const targets = (await listTargetsImpl(port)).filter((target) => targetIds.has(target.id) && target.webSocketDebuggerUrl);
     const targetById = new Map(targets.map((target) => [target.id, target]));
     const attemptsLimit = Math.max(1, Number(maxAttempts) || DEFAULT_CONTACT_MAX_ATTEMPTS);
+    const followupOptions = { enabled: false, ...followup };
     const results = [];
     for (const record of openedRecords) {
       if (!["boss", "liepin"].includes(String(record.site || "").toLowerCase())) continue;
@@ -2796,74 +2917,95 @@ export function createContactActionRunner({
         continue;
       }
       if (preflight?.alreadySatisfied) {
-        const close = await closeResolvedContactPage(port, record, "contact-already-satisfied", closeResolvedPages);
+        let attempts = [];
+        let openResult = null;
+        let followupResult = null;
+        let followupTargetId = record.targetId;
+        if (followupOptions.enabled) {
+          if (preflight.conversationOpen) {
+            openResult = {
+              attempted: false,
+              clicked: false,
+              verified: true,
+              messageSent: Boolean(preflight.messageSent),
+              verification: { ...preflight, targetId: record.targetId },
+            };
+          } else {
+            const attemptState = await attemptContactTrigger(port, record, target, {
+              attemptsLimit,
+              retryDelayMs,
+              verifyDelayMs,
+              requireConversationOpen: true,
+            });
+            attempts = attemptState.attempts;
+            openResult = attemptState.last;
+          }
+          followupTargetId = openResult?.verification?.targetId || record.targetId;
+          followupResult = openResult?.verified
+            ? await runContactFollowup(port, record, followupTargetId, followupOptions)
+            : {
+                enabled: true,
+                attempted: false,
+                verified: false,
+                status: "conversation-not-opened",
+                error: openResult?.error || "conversation-not-opened-before-followup",
+                messagePlan: contactFollowupMessagePlan(followupOptions),
+              };
+        }
+        const close = followupOptions.enabled
+          ? followupResult?.verified
+            ? await closeResolvedContactPage(port, { ...record, targetId: followupTargetId }, "contact-followup-verified", closeResolvedPages)
+            : { closed: false, reason: "contact-followup-not-verified", targetId: followupTargetId }
+          : await closeResolvedContactPage(port, record, "contact-already-satisfied", closeResolvedPages);
         results.push({
           ...record,
           supported: true,
-          attempted: false,
-          clicked: false,
+          attempted: Boolean(openResult?.attempted || attempts.length),
+          clicked: Boolean(openResult?.clicked),
           verified: true,
-          messageSent: Boolean(preflight.messageSent),
-          conversationOpen: Boolean(preflight.conversationOpen),
+          messageSent: Boolean(openResult?.messageSent || preflight.messageSent),
+          conversationOpen: Boolean(openResult?.verification?.conversationOpen || preflight.conversationOpen),
           alreadyContacted: Boolean(preflight.alreadyContacted),
           noContactNeeded: true,
           preflight,
-          verification: preflight,
-          attempts: [],
-          attemptCount: 0,
+          verification: openResult?.verification || preflight,
+          attempts,
+          attemptCount: attempts.length,
+          followup: followupResult || (followupOptions.enabled ? null : undefined),
           close,
-          error: null,
+          error: followupResult && !followupResult.verified ? followupResult.error || followupResult.status : null,
           targetId: record.targetId,
         });
         if (betweenRecordsDelayMs > 0) await delayImpl(betweenRecordsDelayMs);
         continue;
       }
-      const attempts = [];
-      let final = null;
-      for (let attempt = 1; attempt <= attemptsLimit; attempt += 1) {
-        if (attempt > 1 && retryDelayMs > 0) await delayImpl(retryDelayMs);
-        try {
-          const result = await evaluateTargetImpl(target, contactTriggerExpression(record.site));
-          let verification = null;
-          if (result.clicked) {
-            verification = await verifyContactAction(port, record, record.targetId, result, verifyDelayMs);
-          }
-          const attemptResult = {
-            attempt,
-            ...result,
-            verified: Boolean(verification?.verified),
-            messageSent: Boolean(verification?.messageSent),
-            verification,
-          };
-          attempts.push(attemptResult);
-          if (attemptResult.verified) {
-            final = attemptResult;
-            break;
-          }
-          if (result.supported === false) {
-            final = attemptResult;
-            break;
-          }
-        } catch (error) {
-          const attemptResult = {
-            attempt,
-            attempted: true,
-            clicked: false,
-            verified: false,
-            messageSent: false,
-            error: error.message,
-          };
-          attempts.push(attemptResult);
-        }
-      }
-      const last = final || attempts[attempts.length - 1] || {
-        attempted: true,
-        clicked: false,
-        verified: false,
-        messageSent: false,
-      };
+      const attemptState = await attemptContactTrigger(port, record, target, {
+        attemptsLimit,
+        retryDelayMs,
+        verifyDelayMs,
+        requireConversationOpen: followupOptions.enabled,
+      });
+      const attempts = attemptState.attempts;
+      const last = attemptState.last;
+      const followupTargetId = last?.verification?.targetId || record.targetId;
+      const followupResult = followupOptions.enabled && last.verified
+        ? await runContactFollowup(port, record, followupTargetId, followupOptions)
+        : followupOptions.enabled
+          ? {
+              enabled: true,
+              attempted: false,
+              verified: false,
+              status: "contact-not-verified-before-followup",
+              error: last.error || `contact-not-verified-after-${attempts.length}-attempts`,
+              messagePlan: contactFollowupMessagePlan(followupOptions),
+            }
+          : undefined;
       const close = last.verified
-        ? await closeResolvedContactPage(port, record, "contact-verified", closeResolvedPages)
+        ? followupOptions.enabled
+          ? followupResult?.verified
+            ? await closeResolvedContactPage(port, { ...record, targetId: followupTargetId }, "contact-followup-verified", closeResolvedPages)
+            : { closed: false, reason: "contact-followup-not-verified", targetId: followupTargetId }
+          : await closeResolvedContactPage(port, record, "contact-verified", closeResolvedPages)
         : { closed: false, reason: "contact-not-verified", targetId: record.targetId };
       results.push({
         ...record,
@@ -2873,7 +3015,12 @@ export function createContactActionRunner({
         attemptCount: attempts.length,
         verified: Boolean(last.verified),
         messageSent: Boolean(last.messageSent),
-        error: last.verified ? null : last.error || `contact-not-verified-after-${attempts.length}-attempts`,
+        followup: followupResult,
+        error: last.verified
+          ? followupResult && !followupResult.verified
+            ? followupResult.error || followupResult.status
+            : null
+          : last.error || `contact-not-verified-after-${attempts.length}-attempts`,
         close,
         targetId: record.targetId,
       });
@@ -2925,6 +3072,10 @@ function batchPolicyFromArgs(args) {
 }
 
 function contactActionOptionsFromArgs(args) {
+  const followupEnabled = boolOption(args, "send-contact-followup") || boolOption(args, "contact-followup");
+  if (followupEnabled && !boolOption(args, "trigger-contact")) {
+    throw new Error("--send-contact-followup requires --trigger-contact so the harness can first verify an open conversation.");
+  }
   return {
     enabled: boolOption(args, "trigger-contact"),
     delayMs: intOption(args, "contact-delay-ms", DEFAULT_CONTACT_DELAY_MS),
@@ -2933,6 +3084,83 @@ function contactActionOptionsFromArgs(args) {
     maxAttempts: intOption(args, "contact-max-attempts", DEFAULT_CONTACT_MAX_ATTEMPTS),
     betweenRecordsDelayMs: intOption(args, "contact-between-records-ms", DEFAULT_CONTACT_BETWEEN_RECORDS_MS),
     closeResolvedPages: !boolOption(args, "keep-contact-pages"),
+    followup: contactFollowupOptionsFromArgs(args, { enabled: followupEnabled }),
+  };
+}
+
+function readContactFollowupMessageFile(file) {
+  if (!file) return "";
+  const resolved = path.isAbsolute(file) ? file : path.resolve(ROOT, file);
+  if (!fs.existsSync(resolved)) throw new Error(`Follow-up message file not found: ${resolved}`);
+  return fs.readFileSync(resolved, "utf8").trim();
+}
+
+function contactFollowupMessagePlan(followupOptions = {}) {
+  const messages = Array.isArray(followupOptions.messagesNormalized)
+    ? followupOptions.messagesNormalized.filter(Boolean)
+    : normalizeContactFollowupMessages({
+        resumeNote: followupOptions.resumeNote,
+        messages: followupOptions.messages || [],
+        maxChars: followupOptions.maxChars,
+      });
+  return {
+    normalizedCount: messages.length,
+    totalChars: messages.reduce((sum, item) => sum + String(item || "").length, 0),
+    messages: messages.map((message, index) => ({
+      index,
+      role: index === 0 && String(message || "") === String(followupOptions.resumeNote || DEFAULT_CONTACT_FOLLOWUP_RESUME_NOTE)
+        ? "resume-note"
+        : "followup-message",
+      length: String(message || "").length,
+      sha256: crypto.createHash("sha256").update(String(message || ""), "utf8").digest("hex"),
+    })),
+    sources: followupOptions.messageSources || {},
+  };
+}
+
+function contactFollowupOptionsFromArgs(args, { enabled = false } = {}) {
+  if (!enabled) return { enabled: false };
+  const messageFile = option(args, "followup-message-file", "");
+  const fileMessage = readContactFollowupMessageFile(messageFile);
+  const inlineMessages = values(args, "followup-message");
+  const mainMessages = [...inlineMessages, fileMessage].filter(Boolean);
+  if (!mainMessages.length && !boolOption(args, "followup-note-only")) {
+    throw new Error("--send-contact-followup requires --followup-message-file or --followup-message. Use --followup-note-only only for an explicit note-only run.");
+  }
+  return {
+    enabled: true,
+    resumeNote: option(args, "followup-resume-note", DEFAULT_CONTACT_FOLLOWUP_RESUME_NOTE),
+    messages: mainMessages,
+    exchangeResume: !boolOption(args, "no-followup-resume-action"),
+    exchangeWechat: !boolOption(args, "no-followup-wechat-action"),
+    requireExchangeActions: !boolOption(args, "allow-followup-without-exchange"),
+    stepDelayMs: intOption(args, "followup-step-delay-ms", DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS),
+    verifyDelayMs: intOption(args, "followup-verify-delay-ms", DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS),
+    maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
+    messageSources: {
+      inlineCount: inlineMessages.length,
+      file: messageFile
+        ? path.relative(ROOT, path.isAbsolute(messageFile) ? messageFile : path.resolve(ROOT, messageFile))
+        : null,
+      fileChars: fileMessage.length,
+    },
+    messagesNormalized: normalizeContactFollowupMessages({
+      resumeNote: option(args, "followup-resume-note", DEFAULT_CONTACT_FOLLOWUP_RESUME_NOTE),
+      messages: mainMessages,
+      maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
+    }),
+  };
+}
+
+function contactFollowupStats(actions) {
+  const followups = (actions || []).map((action) => action.followup).filter((item) => item?.enabled);
+  return {
+    attempted: followups.filter((item) => item.attempted).length,
+    verified: followups.filter((item) => item.verified).length,
+    failed: followups.filter((item) => !item.verified).length,
+    messageSent: followups.reduce((sum, item) => sum + Number(item.sentMessageCount || 0), 0),
+    exchangeClicked: followups.reduce((sum, item) => sum + Number(item.clickedExchangeCount || 0), 0),
+    exchangeUnavailable: followups.reduce((sum, item) => sum + Number(item.unavailableExchangeCount || 0), 0),
   };
 }
 
@@ -3037,6 +3265,11 @@ async function cmdOpenBatches(args) {
   let contactVerifiedCount = 0;
   let contactMessageSentCount = 0;
   let contactFailedCount = 0;
+  let followupAttemptedCount = 0;
+  let followupVerifiedCount = 0;
+  let followupMessageSentCount = 0;
+  let followupExchangeClickedCount = 0;
+  let followupExchangeUnavailableCount = 0;
   let fatalContactFailureReason = "";
   let batchNumber = 0;
 
@@ -3066,10 +3299,16 @@ async function cmdOpenBatches(args) {
         : [];
       const contactActions = await triggerContactActions(hit.port, opened, contactActionOptionsFromArgs(args));
       const contactFailures = contactActionFailures(contactActions);
+      const followupStats = contactFollowupStats(contactActions);
       contactTriggeredCount += contactActions.filter((item) => item.clicked).length;
       contactVerifiedCount += contactActions.filter((item) => item.verified).length;
       contactMessageSentCount += contactActions.filter((item) => item.messageSent).length;
       contactFailedCount += contactFailures.length;
+      followupAttemptedCount += followupStats.attempted;
+      followupVerifiedCount += followupStats.verified;
+      followupMessageSentCount += followupStats.messageSent;
+      followupExchangeClickedCount += followupStats.exchangeClicked;
+      followupExchangeUnavailableCount += followupStats.exchangeUnavailable;
       let cleanup = { closed: [], failed: [], skipped: boolOption(args, "keep-search-pages") };
       if (!cleanup.skipped) {
         cleanup = await closeGenericJobBoardPages(hit.port).catch((error) => ({ closed: [], failed: [{ error: error.message }] }));
@@ -3124,6 +3363,11 @@ async function cmdOpenBatches(args) {
     contact_verified_count: contactVerifiedCount,
     contact_message_sent_count: contactMessageSentCount,
     contact_failed_count: contactFailedCount,
+    followup_attempted_count: followupAttemptedCount,
+    followup_verified_count: followupVerifiedCount,
+    followup_message_sent_count: followupMessageSentCount,
+    followup_exchange_clicked_count: followupExchangeClickedCount,
+    followup_exchange_unavailable_count: followupExchangeUnavailableCount,
     contact_failure_reason: fatalContactFailureReason || null,
     rejected_count: rejected.length,
     remaining_count: queue.remaining,
@@ -3219,6 +3463,7 @@ async function cmdOpen(args) {
   const contactTriggeredCount = contactActions.filter((item) => item.clicked).length;
   const contactVerifiedCount = contactActions.filter((item) => item.verified).length;
   const contactMessageSentCount = contactActions.filter((item) => item.messageSent).length;
+  const followupStats = contactFollowupStats(contactActions);
   const contactFailureText = contactFailureReason(contactFailures);
   console.log(JSON.stringify({
     output,
@@ -3227,6 +3472,11 @@ async function cmdOpen(args) {
     contact_verified_count: contactVerifiedCount,
     contact_message_sent_count: contactMessageSentCount,
     contact_failed_count: contactFailures.length,
+    followup_attempted_count: followupStats.attempted,
+    followup_verified_count: followupStats.verified,
+    followup_message_sent_count: followupStats.messageSent,
+    followup_exchange_clicked_count: followupStats.exchangeClicked,
+    followup_exchange_unavailable_count: followupStats.exchangeUnavailable,
     contact_failure_reason: contactFailureText || null,
     rejected_count: rejected.length,
     access_limited_count: accessLimited.length,
@@ -3703,6 +3953,14 @@ Common options:
   --keep-contact-pages Keep resolved contact/detail pages open for inspection; uncertain pages are always kept open
   --allow-contact-failures Keep going even when --trigger-contact cannot verify a supported BOSS/Liepin contact
   --allow-unaudited-contact Allow --trigger-contact from manually assembled input after explicit review
+  --send-contact-followup After verified contact, click chat resume/WeChat exchange actions and send follow-up messages
+  --followup-message-file <file> Read the main follow-up message from an ignored local file
+  --followup-message "..." Repeatable inline follow-up message; avoid committing personal content
+  --followup-resume-note "..." First note after resume/WeChat actions; defaults to the configured resume note
+  --allow-followup-without-exchange Send messages even if resume/WeChat exchange buttons are not found
+  --followup-step-delay-ms 900 Wait between exchange, confirm, and send actions
+  --followup-verify-delay-ms 1800 Wait after each send before transcript verification
+  --followup-message-max-chars 900 Split long message text into safer chat-sized chunks
   --resume                For open-batches: continue the saved queue
   --draft                 For profile init: write draft instead of durable config
   --reason "..."          For profile freeze/feedback history

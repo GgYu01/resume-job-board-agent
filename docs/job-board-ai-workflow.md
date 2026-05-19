@@ -252,6 +252,28 @@ closed only after strict success or already-satisfied preflight; uncertain or
 failed contact pages stay open for user inspection. Pass `--keep-contact-pages`
 when an intentional inspection run should preserve resolved pages too.
 
+If the user explicitly wants a post-contact follow-up, add
+`--send-contact-followup --followup-message-file <ignored-file>` together with
+`--trigger-contact`. The follow-up runner first verifies or opens the
+conversation, then tries chat-page resume and WeChat exchange actions before
+sending the configured resume note and message chunks. On resume popups, the
+runner records `resumeSelection` and prefers the currently checked/default
+resume radio or label before clicking the submit/投递 confirmation. Keep the
+long personal message in `.tmp/` or another ignored local path, not in committed
+docs or config. Receipts add `followup_attempted_count`, `followup_verified_count`,
+`followup_message_sent_count`, `followup_exchange_clicked_count`,
+`followup_exchange_unavailable_count`, and per-record `followup` details. The
+per-record follow-up result also stores `trace` steps for exchange-action
+candidate search, disabled BOSS exchange states, modal confirmation
+search/clicks, completion signals, and message visibility checks. `messagePlan`
+records message counts, lengths, SHA-256 digests, and ignored-file source
+metadata, but not the full personal message body. A missing resume/WeChat action
+is a failure by default; when BOSS explicitly marks the action as unavailable
+with "双方回复后可用", the receipt records `status: "platform-unavailable"` and
+`reason: "platform-requires-mutual-reply"` so later review can distinguish a
+platform precondition from a selector failure. Use
+`--allow-followup-without-exchange` only for an intentional degraded run.
+
 `open` runs the login-state gate by default. For detail-opening batches it uses
 the first selected detail URL for the auth probe, so BOSS does not leave
 `/web/geek/jobs` as the final visible work page. If auth is not ready it opens

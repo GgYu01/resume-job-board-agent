@@ -55,6 +55,14 @@ Codex review contract:
 signals only. Any `--trigger-contact --input` production flow requires a
 validated semantic review from `agent-review --review-output`; rule fallback
 records are refused unless `--allow-unaudited-contact` is passed intentionally.
+Post-contact custom messaging is a separate explicit action:
+`--send-contact-followup` must be used together with `--trigger-contact`, and
+the long personal message should come from an ignored local file via
+`--followup-message-file`. Follow-up receipts include a per-step trace for
+exchange-button search, default-priority resume selection, modal confirmation
+clicks, BOSS "both sides must reply first" disabled states, message send
+verification, and a hashed message plan so later reviews can reproduce the
+decision path without committing the personal message body.
 Use `collect --include-recommendation-pages` or the default `run --profile ...`
 flow to include BOSS/Liepin recommendation list pages as an additional screened
 source. BOSS overview topic tabs such as the horizontal role recommendations

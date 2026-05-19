@@ -1,8 +1,9 @@
 import { detectAccessLimited } from "../extract/collect-links.mjs";
 
-function classifyPage({ text = "", cookies = [] } = {}) {
+function classifyPage({ text = "", cookies = [], url = "" } = {}) {
   const accessLimited = detectAccessLimited(text);
   const loginRequired = /登录|注册|扫码|手机号|密码登录|login|sign\s*in/i.test(text);
+  const loginPageSignals = /登录\s*\/\s*注册|登录账号|立即登录|登录查看完整内容|\/web\/user\//i.test(`${text} ${url || ""}`);
   const loggedInSignals = /我的简历|我的猎聘|沟通|消息|已投递|职位推荐|我的BOSS/i.test(text);
   const authCookieNameHints = cookies
     .map((cookie) => String(cookie.name || ""))
@@ -10,6 +11,7 @@ function classifyPage({ text = "", cookies = [] } = {}) {
 
   let status = "unknown";
   if (accessLimited) status = "needs-user-action";
+  else if (loginPageSignals) status = authCookieNameHints.length ? "needs-user-action" : "login-required";
   else if (loggedInSignals && !loginRequired) status = "logged-in";
   else if (loginRequired && !authCookieNameHints.length) status = "login-required";
   else if (authCookieNameHints.length || cookies.length >= 4) status = "probably-logged-in";
@@ -18,6 +20,7 @@ function classifyPage({ text = "", cookies = [] } = {}) {
     status,
     page: {
       loginRequired,
+      loginPageSignals,
       loggedInSignals,
       accessLimited,
       textLength: String(text).length,

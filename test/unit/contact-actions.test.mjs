@@ -13,7 +13,7 @@ import {
 import { createContactActionRunner } from "../../src/cli/runtime.mjs";
 
 class FakeElement {
-  constructor({ tag = "div", text = "", className = "", attrs = {}, visible = true, parent = null } = {}) {
+  constructor({ tag = "div", text = "", className = "", attrs = {}, visible = true, parent = null, onClick = null } = {}) {
     this.tagName = tag.toUpperCase();
     this.innerText = text;
     this.textContent = text;
@@ -21,9 +21,12 @@ class FakeElement {
     this.attrs = new Map(Object.entries(attrs));
     this.visible = visible;
     this.parentElement = parent;
+    this.children = [];
     this.clicked = 0;
     this.disabled = false;
     this.href = attrs.href || "";
+    this.onClick = onClick;
+    if (parent?.children) parent.children.push(this);
   }
 
   getAttribute(name) {
@@ -39,10 +42,23 @@ class FakeElement {
     return this.visible ? { width: 150, height: 45, x: 0, y: 0 } : { width: 0, height: 0, x: 0, y: 0 };
   }
 
+  querySelectorAll(selector) {
+    const out = [];
+    const visit = (node) => {
+      for (const child of node.children || []) {
+        if (matchesSelector(child, selector)) out.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return out;
+  }
+
   scrollIntoView() {}
 
   click() {
     this.clicked += 1;
+    if (this.onClick) this.onClick(this);
   }
 }
 
@@ -57,15 +73,24 @@ function matchesSelector(el, selector) {
     if (part === "input") return el.tagName === "INPUT";
     if (part === "[contenteditable='true']" || part === "[contenteditable=true]") return el.getAttribute("contenteditable") === "true";
     if (part === "[role='button']" || part === "[role=button]") return el.getAttribute("role") === "button";
-    if (part.startsWith(".")) return String(el.className || "").split(/\s+/).includes(part.slice(1));
+    if (part.startsWith(".")) {
+      const wanted = part.slice(1).split(".");
+      const classes = String(el.className || "").split(/\s+/);
+      return wanted.every((item) => classes.includes(item));
+    }
     return false;
   });
 }
 
 function runBrowserExpression(expression, elements, { url = "https://example.test/", title = "Test" } = {}) {
+  const body = {
+    innerText: elements.map((el) => el.innerText || el.textContent || "").join(" "),
+    textContent: elements.map((el) => el.innerText || el.textContent || "").join(" "),
+  };
   const document = {
     title,
     location: { href: url },
+    body,
     querySelectorAll(selector) {
       return elements.filter((el) => matchesSelector(el, selector));
     },
@@ -87,6 +112,44 @@ function runBrowserExpression(expression, elements, { url = "https://example.tes
   return JSON.parse(vm.runInNewContext(expression, context));
 }
 
+async function runBrowserExpressionAsync(expression, elements, { url = "https://example.test/", title = "Test" } = {}) {
+  const location = { href: url };
+  const body = {
+    get innerText() {
+      return elements.map((el) => el.innerText || el.textContent || "").join(" ");
+    },
+    get textContent() {
+      return this.innerText;
+    },
+  };
+  const document = {
+    title,
+    location,
+    body,
+    querySelectorAll(selector) {
+      return elements.filter((el) => matchesSelector(el, selector));
+    },
+  };
+  const context = {
+    document,
+    location,
+    setTimeout,
+    Promise,
+    window: {
+      frames: [],
+      location,
+      getComputedStyle(el) {
+        return {
+          display: el.visible ? "block" : "none",
+          visibility: "visible",
+          opacity: "1",
+        };
+      },
+    },
+  };
+  return JSON.parse(await vm.runInNewContext(expression, context));
+}
+
 test("contact action labels target explicit site communication buttons", () => {
   assert.deepEqual(contactActionLabels("boss"), ["立即沟通", "继续沟通"]);
   assert.deepEqual(contactActionLabels("liepin"), ["聊一聊", "继续聊"]);
@@ -100,15 +163,16 @@ test("contact trigger expression carries the site-specific button label", () => 
   assert.match(contactTriggerExpression("liepin"), /\\u7ee7\\u7eed\\u804a/);
 });
 
-test("contact trigger expression clicks BOSS start-chat controls from real detail DOM shape", () => {
+test("contact trigger expression clicks BOSS start-chat controls from real detail DOM shape", async () => {
   const container = new FakeElement({ className: "btn-container", text: "感兴趣 继续沟通" });
   const interest = new FakeElement({ tag: "a", className: "btn btn-interest", text: "感兴趣", parent: container });
   const startChat = new FakeElement({ tag: "a", className: "btn btn-startchat", text: "继续沟通", parent: container });
 
-  const result = runBrowserExpression(contactTriggerExpression("boss"), [container, interest, startChat], {
+  const result = await runBrowserExpressionAsync(contactTriggerExpression("boss"), [container, interest, startChat], {
     url: "https://www.zhipin.com/job_detail/example.html",
     title: "BOSS detail",
   });
+  await new Promise((resolve) => setTimeout(resolve, 80));
 
   assert.equal(result.clicked, true);
   assert.equal(result.label, "继续沟通");
@@ -117,11 +181,77 @@ test("contact trigger expression clicks BOSS start-chat controls from real detai
   assert.equal(interest.clicked, 0);
 });
 
-test("contact trigger expression clicks Liepin detail-page chat buttons", () => {
+test("contact trigger expression drains BOSS quota and success prompts into chat", async () => {
+  const chat = new FakeElement({ className: "chat-conversation", text: "\u674e\u5148\u751f AI Agent\u5de5\u7a0b\u5e08 \u6309Enter\u952e\u53d1\u9001" });
+  const input = new FakeElement({ tag: "textarea", className: "chat-input", attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" }, parent: chat, visible: false });
+  const quota = new FakeElement({ className: "dialog-wrap greet-pop", text: "\u6e29\u99a8\u63d0\u793a \u60a8\u4eca\u5929\u5df2\u4e0e120\u4f4dBOSS\u6c9f\u901a\uff0c\u8fd8\u526930\u6b21\u6c9f\u901a\u673a\u4f1a\u54e6 \u597d", visible: false });
+  const quotaOk = new FakeElement({
+    tag: "span",
+    className: "btn btn-sure",
+    text: "\u597d",
+    parent: quota,
+    visible: false,
+    onClick: () => {
+      quota.visible = false;
+      quotaOk.visible = false;
+      success.visible = true;
+      continueChat.visible = true;
+    },
+  });
+  const success = new FakeElement({ className: "dialog-wrap greet-boss-pop", text: "\u5df2\u5411BOSS\u53d1\u9001\u6d88\u606f \u7559\u5728\u6b64\u9875 \u7ee7\u7eed\u6c9f\u901a", visible: false });
+  const continueChat = new FakeElement({
+    tag: "span",
+    className: "btn btn-sure",
+    text: "\u7ee7\u7eed\u6c9f\u901a",
+    parent: success,
+    visible: false,
+    onClick: () => {
+      success.visible = false;
+      continueChat.visible = false;
+      chat.visible = true;
+      input.visible = true;
+    },
+  });
+  const container = new FakeElement({ className: "btn-container", text: "\u611f\u5174\u8da3 \u7acb\u5373\u6c9f\u901a" });
+  const startChat = new FakeElement({
+    tag: "a",
+    className: "btn btn-startchat",
+    text: "\u7acb\u5373\u6c9f\u901a",
+    parent: container,
+    onClick: () => {
+      quota.visible = true;
+      quotaOk.visible = true;
+    },
+  });
+
+  const result = await runBrowserExpressionAsync(contactTriggerExpression("boss"), [
+    container,
+    startChat,
+    quota,
+    quotaOk,
+    success,
+    continueChat,
+    chat,
+    input,
+  ], {
+    url: "https://www.zhipin.com/job_detail/example.html",
+    title: "BOSS detail",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  assert.equal(result.clicked, true);
+  assert.equal(startChat.clicked, 1);
+  assert.equal(quotaOk.clicked, 1);
+  assert.equal(continueChat.clicked, 1);
+  assert.equal(result.postClickSteps.some((step) => step.text === "\u597d"), true);
+  assert.equal(result.postClickSteps.some((step) => step.text === "\u7ee7\u7eed\u6c9f\u901a"), true);
+});
+
+test("contact trigger expression clicks Liepin detail-page chat buttons", async () => {
   const operate = new FakeElement({ className: "job-apply-operate", text: "聊一聊 收藏 微信分享扫码" });
   const chat = new FakeElement({ tag: "a", className: "btn-main", text: "聊一聊", parent: operate });
 
-  const result = runBrowserExpression(contactTriggerExpression("liepin"), [operate, chat], {
+  const result = await runBrowserExpressionAsync(contactTriggerExpression("liepin"), [operate, chat], {
     url: "https://www.liepin.com/a/74696909.shtml",
     title: "Liepin detail",
   });
@@ -132,12 +262,12 @@ test("contact trigger expression clicks Liepin detail-page chat buttons", () => 
   assert.equal(operate.clicked, 0);
 });
 
-test("contact trigger expression does not click Liepin recommended job list chat buttons", () => {
+test("contact trigger expression does not click Liepin recommended job list chat buttons", async () => {
   const detail = new FakeElement({ className: "job-detail", text: "AI application engineer 20-35k Hefei" });
   const recommendedList = new FakeElement({ className: "job-list", text: "recommended jobs chat" });
   const recommendedChat = new FakeElement({ tag: "span", text: "\u804a\u4e00\u804a", parent: recommendedList });
 
-  const result = runBrowserExpression(contactTriggerExpression("liepin"), [detail, recommendedList, recommendedChat], {
+  const result = await runBrowserExpressionAsync(contactTriggerExpression("liepin"), [detail, recommendedList, recommendedChat], {
     url: "https://www.liepin.com/a/75167089.shtml",
     title: "Liepin detail",
   });
@@ -148,11 +278,11 @@ test("contact trigger expression does not click Liepin recommended job list chat
   assert.equal(recommendedChat.clicked, 0);
 });
 
-test("contact trigger expression clicks conservative communication synonyms", () => {
+test("contact trigger expression clicks conservative communication synonyms", async () => {
   const operate = new FakeElement({ className: "job-apply-operate", text: "\u5728\u7ebf\u6c9f\u901a" });
   const chat = new FakeElement({ tag: "button", className: "btn-chat", text: "\u5728\u7ebf\u6c9f\u901a", parent: operate });
 
-  const result = runBrowserExpression(contactTriggerExpression("liepin"), [operate, chat], {
+  const result = await runBrowserExpressionAsync(contactTriggerExpression("liepin"), [operate, chat], {
     url: "https://www.liepin.com/a/74696909.shtml",
     title: "Liepin detail",
   });
@@ -163,12 +293,12 @@ test("contact trigger expression clicks conservative communication synonyms", ()
   assert.equal(operate.clicked, 0);
 });
 
-test("contact trigger expression clicks Liepin continue-chat buttons from lptjob DOM shape", () => {
+test("contact trigger expression clicks Liepin continue-chat buttons from lptjob DOM shape", async () => {
   const operate = new FakeElement({ className: "job-apply-operate", text: "\u6295\u7b80\u5386 \u7ee7\u7eed\u804a \u6536\u85cf" });
   const resume = new FakeElement({ tag: "a", className: "btn-minor", text: "\u6295\u7b80\u5386", parent: operate });
   const chat = new FakeElement({ tag: "a", className: "btn-main", text: "\u7ee7\u7eed\u804a", parent: operate });
 
-  const result = runBrowserExpression(contactTriggerExpression("liepin"), [operate, resume, chat], {
+  const result = await runBrowserExpressionAsync(contactTriggerExpression("liepin"), [operate, resume, chat], {
     url: "https://www.liepin.com/lptjob/82545837",
     title: "Liepin lptjob detail",
   });
@@ -205,6 +335,47 @@ test("contact verification expression treats an opened BOSS chat UI as verified"
   assert.equal(result.verified, true);
   assert.equal(result.status, "conversation-opened");
   assert.equal(result.conversationOpen, true);
+});
+
+test("contact verification expression requires expected BOSS chat identity when provided", () => {
+  const chatShell = new FakeElement({
+    className: "chat-conversation",
+    text: "\u674e\u5148\u751f \u730e\u5934\u987e\u95ee AI Agent\u5de5\u7a0b\u5e08 50-60K \u5408\u80a5 \u67e5\u770b\u804c\u4f4d \u6309Enter\u952e\u53d1\u9001",
+  });
+  const input = new FakeElement({ tag: "textarea", className: "chat-input", attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" }, parent: chatShell });
+
+  const result = runBrowserExpression(contactVerificationExpression("boss", {
+    jobTitle: "AI Agent\u5de5\u7a0b\u5e08",
+    recruiter: "\u674e\u5148\u751f",
+  }), [chatShell, input], {
+    url: "https://www.zhipin.com/web/geek/chat",
+    title: "BOSS\u76f4\u8058",
+  });
+
+  assert.equal(result.verified, true);
+  assert.equal(result.conversationOpen, true);
+  assert.equal(result.conversationMatched, true);
+});
+
+test("contact verification expression rejects mismatched BOSS chat when expected identity is provided", () => {
+  const chatShell = new FakeElement({
+    className: "chat-conversation",
+    text: "\u738b\u5973\u58eb Java\u5de5\u7a0b\u5e08 20-30K \u5408\u80a5 \u6309Enter\u952e\u53d1\u9001",
+  });
+  const input = new FakeElement({ tag: "textarea", className: "chat-input", attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" }, parent: chatShell });
+
+  const result = runBrowserExpression(contactVerificationExpression("boss", {
+    jobTitle: "AI Agent\u5de5\u7a0b\u5e08",
+    recruiter: "\u674e\u5148\u751f",
+  }), [chatShell, input], {
+    url: "https://www.zhipin.com/web/geek/chat",
+    title: "BOSS\u76f4\u8058",
+  });
+
+  assert.equal(result.verified, false);
+  assert.equal(result.conversationOpen, false);
+  assert.equal(result.conversationMatched, false);
+  assert.equal(result.status, "conversation-mismatch");
 });
 
 test("contact verification expression does not treat a bare Liepin chat button as sent", () => {

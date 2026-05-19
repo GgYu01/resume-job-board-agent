@@ -6,6 +6,13 @@ function escapedJsonString(value) {
   return `"${escaped}"`;
 }
 
+function escapedJsonLiteral(value) {
+  return JSON.stringify(value ?? {})
+    .replace(/`/g, "\\`")
+    .replace(/\$\{/g, "\\${")
+    .replace(/[\u0080-\uffff]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 export function contactActionLabels(site) {
   const normalized = String(site || "").toLowerCase();
   if (normalized === "boss") return ["立即沟通", "继续沟通"];
@@ -43,6 +50,7 @@ export function contactVerificationOutcome(triggerResult, verification) {
   const conversationOpen = Boolean(verification?.conversationOpen);
   const messageSent = Boolean(verification?.messageSent);
   const alreadyContacted = Boolean(verification?.alreadyContacted);
+  const conversationMismatch = verification?.conversationMatched === false || verification?.status === "conversation-mismatch";
   const continueLabel = label === compactTextValue("继续沟通") || label === compactTextValue("继续聊");
   const directSendLabel = contactTriggerLabels(site)
     .map((item) => compactTextValue(item))
@@ -50,11 +58,11 @@ export function contactVerificationOutcome(triggerResult, verification) {
   const verified = Boolean(
     messageSent ||
     conversationOpen ||
-    (clicked && directSendLabel && alreadyContacted),
+    (clicked && directSendLabel && alreadyContacted && !conversationMismatch),
   );
   const inferredMessageSent = Boolean(
     messageSent ||
-    (clicked && directSendLabel && alreadyContacted && !continueLabel),
+    (clicked && directSendLabel && alreadyContacted && !continueLabel && !conversationMismatch),
   );
   let status = verification?.status || "not-verified";
   if (!verified && status !== "not-verified" && status !== "verification-target-not-found") {
@@ -80,6 +88,7 @@ export function contactActionFailures(actions) {
     const site = normalizedSite(action?.site);
     if (!["boss", "liepin"].includes(site)) return false;
     if (action?.supported === false) return false;
+    if (action?.followup?.enabled && !action.followup.verified) return true;
     return !action?.verified;
   });
 }
@@ -106,6 +115,7 @@ export function contactPageStateExpression(site) {
   return `(() => {
     const marker = "__JOB_BOARD_CONTACT_PAGE_STATE__";
     const site = String(${siteLiteral} || "").toLowerCase();
+    const expectedConversation = {};
     const norm = (value) => String(value || "")
       .replace(/\\u00a0/g, " ")
       .replace(/[ \\t\\r\\n]+/g, " ")
@@ -173,8 +183,18 @@ export function contactPageStateExpression(site) {
       ? /\\u7ee7\\u7eed\\u6c9f\\u901a|\\u5df2\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u804a/.test(visibleText)
       : /\\u5df2\\u804a|\\u5df2\\u804a\\u8fc7|\\u7ee7\\u7eed\\u804a|\\u7ee7\\u7eed\\u6c9f\\u901a|\\u6c9f\\u901a\\u8fc7|\\u5df2\\u6c9f\\u901a/.test(visibleText);
     const outgoingDefaultMessage = /(?:\\u60a8\\u597d|\\u4f60\\u597d|\\u6211).{0,30}(?:\\u804c\\u4f4d|\\u5c97\\u4f4d).{0,50}(?:\\u611f\\u5174\\u8da3|\\u6c9f\\u901a|\\u4e86\\u89e3)|(?:\\u5bf9|\\u6211\\u5bf9).{0,30}(?:\\u804c\\u4f4d|\\u5c97\\u4f4d).{0,30}\\u611f\\u5174\\u8da3/.test(body);
-    const messageSent = Boolean((chatUrl || chatUi) && outgoingDefaultMessage);
-    const conversationOpen = Boolean(chatUrl || chatUi);
+    const activeConversationItems = visibleItems.filter((item) =>
+      /chat-conversation|chat-position-content|chat-record|chat-message|message-content|message-controls|chat-im|chat-editor|zpchat|chat-panel|chat-window/i.test(item.className)
+    );
+    const activeConversationText = norm(activeConversationItems.map((item) => item.text).join(" ")) || visibleText;
+    const expectedJobTitle = norm(expectedConversation.jobTitle || expectedConversation.title || expectedConversation.position || "");
+    const expectedRecruiter = norm(expectedConversation.recruiter || expectedConversation.bossName || expectedConversation.name || "");
+    const hasExpectedConversation = Boolean(site === "boss" && (expectedJobTitle || expectedRecruiter));
+    const titleMatched = !expectedJobTitle || compact(activeConversationText).includes(compact(expectedJobTitle));
+    const recruiterMatched = !expectedRecruiter || compact(activeConversationText).includes(compact(expectedRecruiter));
+    const conversationMatched = Boolean(!hasExpectedConversation || (titleMatched && recruiterMatched));
+    const conversationOpen = Boolean((chatUrl || chatUi) && conversationMatched);
+    const messageSent = Boolean(conversationOpen && outgoingDefaultMessage);
     const supported = ["boss", "liepin"].includes(site);
     const alreadyContacted = Boolean(conversationOpen || existingItems.length);
     const alreadySatisfied = Boolean(supported && (messageSent || conversationOpen || existingItems.length));
@@ -182,13 +202,16 @@ export function contactPageStateExpression(site) {
     const signals = [];
     if (chatUrl) signals.push("chat-url");
     if (chatUi) signals.push("chat-ui");
+    if (hasExpectedConversation) signals.push(conversationMatched ? "conversation-matched" : "conversation-mismatch");
     if (messageSent) signals.push("outgoing-default-message-text");
     if (existingItems.length) signals.push("existing-conversation-action");
     if (alreadyText) signals.push("already-contacted-text");
     if (triggerItems.length) signals.push("trigger-action-visible");
     const status = messageSent
       ? "sent"
-      : conversationOpen
+      : !conversationMatched && (chatUrl || chatUi)
+        ? "conversation-mismatch"
+        : conversationOpen
         ? "conversation-opened"
         : alreadySatisfied
           ? "existing-conversation-marker"
@@ -224,10 +247,12 @@ export function contactTriggerExpression(site) {
   const siteLiteral = escapedJsonString(site);
   const preferredClassTerms = contactPreferredClassTerms(site);
   const preferredClassLiteral = `[${preferredClassTerms.map(escapedJsonString).join(",")}]`;
-  return `(() => {
+  return `(async () => {
     const labels = ${labelsLiteral};
     const site = ${siteLiteral};
     const preferredClassTerms = ${preferredClassLiteral};
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+    const postClickStepDelayMs = 900;
     const norm = (value) => String(value || "")
       .replace(/\\u00a0/g, " ")
       .replace(/[ \\t\\r\\n]+/g, " ")
@@ -303,6 +328,105 @@ export function contactTriggerExpression(site) {
         // Ignore cross-origin frames.
       }
     }
+    const allElements = (selector) => documents.flatMap((doc) => Array.from(doc.querySelectorAll(selector)));
+    const firstTextFromSelectors = (selector) => {
+      for (const el of allElements(selector)) {
+        if (!isVisible(el)) continue;
+        const text = textFor(el);
+        if (text) return text;
+      }
+      return "";
+    };
+    const parseTitleFromPageTitle = () => {
+      const title = norm(document.title || "");
+      const match = title.match(/[「\\[](.{2,120}?)招聘[」\\]]/);
+      return match ? norm(match[1]) : "";
+    };
+    const parseRecruiter = (value) => {
+      const text = norm(value);
+      const match = text.match(/[\\u4e00-\\u9fa5A-Za-z]{1,10}(?:先生|女士|小姐|HR|hr|招聘者|猎头顾问|顾问|经理|主管)/);
+      if (match) return match[0];
+      return text.split(/[\\s·|｜-]+/).find(Boolean) || "";
+    };
+    const expectedConversationFromPage = () => {
+      if (String(site || "").toLowerCase() !== "boss") return {};
+      const jobTitle = parseTitleFromPageTitle() ||
+        firstTextFromSelectors(".job-primary h1,.job-primary .name,.job-banner h1,.detail-box h1,.job-title,h1");
+      const recruiterText = firstTextFromSelectors(".job-boss-info .name,.boss-info .name,.job-boss-info,.boss-info-attr");
+      const companyText = firstTextFromSelectors(".boss-info-attr,.job-boss-info .boss-info-attr");
+      return {
+        jobTitle: norm(jobTitle).slice(0, 120),
+        recruiter: parseRecruiter(recruiterText).slice(0, 40),
+        company: norm(companyText).split(/[·|｜]/)[0]?.slice(0, 80) || "",
+      };
+    };
+    const bossPromptLabelScore = (value, className) => {
+      const text = compact(value);
+      let score = 0;
+      if (text === compact("继续沟通")) score += 160;
+      else if (text.includes(compact("继续沟通"))) score += 120;
+      if (text === compact("好") || text === compact("好") + compact("好")) score += 110;
+      if (text === compact("确定") || text === compact("确认")) score += 105;
+      if (text === compact("知道了") || text === compact("我知道了")) score += 95;
+      if (text.includes(compact("留在此页")) || text.includes(compact("取消"))) score -= 220;
+      if (/btn-sure|sure|confirm|primary/i.test(className)) score += 35;
+      if (/btn-cancel|cancel|outline/i.test(className)) score -= 160;
+      return score;
+    };
+    const bossPromptLabel = (value) => {
+      const text = compact(value);
+      if (text === compact("继续沟通") || text.includes(compact("继续沟通"))) return "继续沟通";
+      if (text === compact("好") || text === compact("好") + compact("好")) return "好";
+      if (text === compact("确定") || text === compact("确认")) return "确定";
+      if (text === compact("知道了") || text === compact("我知道了")) return "知道了";
+      return norm(value);
+    };
+    const findBossPostClickPrompt = () => {
+      if (String(site || "").toLowerCase() !== "boss") return null;
+      const candidates = allElements("button,a,[role='button'],span,div")
+        .filter((el) => isVisible(el) && !isDisabled(clickableFor(el)))
+        .map((el, index) => {
+          const target = clickableFor(el);
+          const text = textFor(el) || textFor(target);
+          const cls = [classFor(el), classFor(target)].join(" ");
+          const inDialog = Boolean(target.closest?.(".dialog-wrap,.dialog-container,[role='dialog'],.modal,.popup,.layer,.confirm,.toast"));
+          let score = bossPromptLabelScore(text, cls);
+          if (inDialog) score += 45;
+          else score -= 80;
+          if (!/^(A|BUTTON|SPAN|DIV)$/.test(tagFor(target)) && target.getAttribute?.("role") !== "button") score -= 80;
+          return { target, text, label: bossPromptLabel(text), cls, inDialog, score: score - index / 10000 };
+        })
+        .filter((item) => item.inDialog && item.score > 0 && isVisible(item.target) && !isDisabled(item.target))
+        .sort((a, b) => b.score - a.score);
+      return candidates[0] || null;
+    };
+    const drainBossPostClickPrompts = async () => {
+      const steps = [];
+      if (String(site || "").toLowerCase() !== "boss") return steps;
+      for (let round = 1; round <= 4; round += 1) {
+        await wait(postClickStepDelayMs);
+        const selectedPrompt = findBossPostClickPrompt();
+        if (!selectedPrompt) break;
+        selectedPrompt.target.scrollIntoView?.({ block: "center", inline: "center" });
+        const navigatesToChat = selectedPrompt.label === "继续沟通";
+        if (navigatesToChat) {
+          setTimeout(() => selectedPrompt.target.click(), 50);
+        } else {
+          selectedPrompt.target.click();
+        }
+        steps.push({
+          round,
+          text: selectedPrompt.label || textFor(selectedPrompt.target) || selectedPrompt.text,
+          targetText: selectedPrompt.text,
+          targetClass: classFor(selectedPrompt.target) || selectedPrompt.cls,
+          score: selectedPrompt.score,
+          scheduledNavigation: navigatesToChat,
+          url: location.href,
+        });
+        if (navigatesToChat) break;
+      }
+      return steps;
+    };
 
     const candidates = [];
     for (const label of labels) {
@@ -331,8 +455,26 @@ export function contactTriggerExpression(site) {
     candidates.sort((a, b) => b.score - a.score);
     const selected = candidates[0];
     if (selected) {
+      const expectedConversation = expectedConversationFromPage();
       selected.target.scrollIntoView?.({ block: "center", inline: "center" });
-      selected.target.click();
+      const directNavigation = String(site || "").toLowerCase() === "boss" && compact(selected.label) === compact("继续沟通");
+      let postClickSteps = [];
+      if (directNavigation) {
+        setTimeout(() => selected.target.click(), 50);
+        postClickSteps = [{
+          round: 0,
+          text: "继续沟通",
+          targetText: selected.targetText,
+          targetClass: classFor(selected.target),
+          score: selected.score,
+          scheduledNavigation: true,
+          directNavigation: true,
+          url: location.href,
+        }];
+      } else {
+        selected.target.click();
+        postClickSteps = await drainBossPostClickPrompts();
+      }
       return JSON.stringify({
         supported: true,
         attempted: true,
@@ -343,6 +485,9 @@ export function contactTriggerExpression(site) {
         targetTag: tagFor(selected.target),
         targetClass: classFor(selected.target),
         score: selected.score,
+        postClickSteps,
+        expectedConversation,
+        finalUrl: location.href,
         preContactState: site === "boss" && compact(selected.label) === compact("继续沟通") ? "existing-conversation-marker" : "unknown",
         url: selected.doc.location?.href || location.href,
         title: selected.doc.title || document.title || ""
@@ -361,10 +506,12 @@ export function contactTriggerExpression(site) {
   })()`;
 }
 
-export function contactVerificationExpression(site) {
+export function contactVerificationExpression(site, expectedConversation = {}) {
   const siteLiteral = escapedJsonString(site);
+  const expectedLiteral = escapedJsonLiteral(expectedConversation || {});
   return `(() => {
     const site = ${siteLiteral};
+    const expectedConversation = ${expectedLiteral};
     const norm = (value) => String(value || "")
       .replace(/\\u00a0/g, " ")
       .replace(/[ \\t\\r\\n]+/g, " ")
@@ -408,16 +555,29 @@ export function contactVerificationExpression(site) {
       ? /继续沟通|沟通过|已沟通/.test(visibleText)
       : /已聊|继续聊|继续沟通|沟通过|已沟通/.test(visibleText);
     const outgoingDefaultMessage = /(?:您好|你好|我).{0,30}(?:职位|岗位).{0,50}(?:感兴趣|沟通|了解)|(?:对|我对).{0,30}(?:职位|岗位).{0,30}感兴趣/.test(body);
-    const messageSent = Boolean((chatUrl || chatUi) && outgoingDefaultMessage);
-    const conversationOpen = Boolean(chatUrl || chatUi);
+    const activeConversationItems = visibleItems.filter((item) =>
+      /chat-conversation|chat-position-content|chat-record|chat-message|message-content|message-controls|chat-im|chat-editor|zpchat|chat-panel|chat-window/i.test(item.className)
+    );
+    const activeConversationText = norm(activeConversationItems.map((item) => item.text).join(" ")) || visibleText;
+    const expectedJobTitle = norm(expectedConversation.jobTitle || expectedConversation.title || expectedConversation.position || "");
+    const expectedRecruiter = norm(expectedConversation.recruiter || expectedConversation.bossName || expectedConversation.name || "");
+    const hasExpectedConversation = Boolean(site === "boss" && (expectedJobTitle || expectedRecruiter));
+    const titleMatched = !expectedJobTitle || compact(activeConversationText).includes(compact(expectedJobTitle));
+    const recruiterMatched = !expectedRecruiter || compact(activeConversationText).includes(compact(expectedRecruiter));
+    const conversationMatched = Boolean(!hasExpectedConversation || (titleMatched && recruiterMatched));
+    const conversationOpen = Boolean((chatUrl || chatUi) && conversationMatched);
+    const messageSent = Boolean(conversationOpen && outgoingDefaultMessage);
     const signals = [];
     if (chatUrl) signals.push("chat-url");
     if (chatUi) signals.push("chat-ui");
+    if (hasExpectedConversation) signals.push(conversationMatched ? "conversation-matched" : "conversation-mismatch");
     if (alreadyContacted) signals.push("already-contacted");
     if (outgoingDefaultMessage) signals.push("outgoing-default-message-text");
     const status = messageSent
       ? "sent"
-      : conversationOpen
+      : !conversationMatched && (chatUrl || chatUi)
+        ? "conversation-mismatch"
+        : conversationOpen
         ? "conversation-opened"
         : alreadyContacted
           ? "existing-conversation-marker"
@@ -428,6 +588,14 @@ export function contactVerificationExpression(site) {
       status,
       messageSent,
       conversationOpen,
+      conversationMatched,
+      conversationMatch: {
+        expectedJobTitle,
+        expectedRecruiter,
+        titleMatched,
+        recruiterMatched,
+        activeConversationSample: activeConversationText.slice(0, 500),
+      },
       alreadyContacted,
       signals,
       url,
