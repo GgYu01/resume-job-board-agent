@@ -1,6 +1,6 @@
 # Privacy And Guardrails
 
-Last reviewed: 2026-05-15
+Last reviewed: 2026-05-19
 
 ## Credentials
 
@@ -17,6 +17,8 @@ Last reviewed: 2026-05-15
 
 When the user explicitly requests post-contact messaging, `--send-contact-followup` may run only together with `--trigger-contact`. The main message should be supplied from an ignored local file such as `.tmp/job_board_harness/followup_message.txt` or from an explicit CLI argument; do not commit personal message text. Receipts must record follow-up exchange clicks, BOSS platform-unavailable exchange states, default-priority resume selection, modal confirmation steps, message counts, verification status, failures, and hashed message-plan metadata. Store full personal message bodies only in ignored local paths.
 
+Delayed follow-up recheck queues may store job ids, URLs, title/company/recruiter identity, pending exchange-action names, attempts, timestamps, UI evidence, receipt paths, and hashed message-plan metadata. They must not store cookies, passwords, exported browser state, raw WeChat IDs, phone numbers, email addresses, or full personal follow-up message bodies. `followup-recheck` retries missing resume/WeChat exchange actions from existing queued conversations by default, must not start a brand-new contact, and must not resend the long personal message unless the user explicitly requests that future mode.
+
 Allowed:
 
 - Summarize.
@@ -24,6 +26,7 @@ Allowed:
 - Draft text for user review.
 - Trigger BOSS/Liepin default contact only through explicit `--trigger-contact`.
 - Send user-supplied follow-up messages only through explicit `--send-contact-followup` after contact verification.
+- Reopen delayed follow-up exchange queues to retry missing resume/WeChat actions.
 
 Not allowed:
 

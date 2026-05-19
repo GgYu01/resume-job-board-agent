@@ -761,9 +761,11 @@ test("contact follow-up records BOSS exchange buttons blocked until both sides r
     title: "BOSS\u76f4\u8058",
   });
 
-  assert.equal(result.verified, true);
+  assert.equal(result.verified, false);
+  assert.equal(result.status, "exchange-action-not-satisfied");
   assert.equal(result.unavailableExchangeCount, 2);
   assert.equal(result.clickedExchangeCount, 0);
+  assert.ok(result.actions.every((action) => action.satisfied === false));
   assert.ok(result.actions.every((action) => action.status === "platform-unavailable"));
   assert.ok(result.trace.some((step) => step.step === "exchange.action.unavailable" && step.type === "wechat"));
 });
@@ -860,4 +862,57 @@ test("contact action runner opens an existing conversation before follow-up inst
   assert.equal(action.clicked, true);
   assert.deepEqual(closed, [{ port: 9222, targetId: "liepin-detail", reason: "contact-followup-verified" }]);
   assert.equal(evaluated.filter((expression) => String(expression).includes("__JOB_BOARD_CONTACT_FOLLOWUP__")).length, 1);
+});
+
+test("contact action runner recheck mode does not start a new conversation", async () => {
+  const target = {
+    id: "boss-detail",
+    type: "page",
+    url: "https://www.zhipin.com/job_detail/123.html",
+    webSocketDebuggerUrl: "ws://example",
+  };
+  const evaluated = [];
+  const runner = createContactActionRunner({
+    listTargets: async () => [target],
+    evaluateTarget: async (_target, expression) => {
+      evaluated.push(String(expression));
+      if (String(expression).includes("__JOB_BOARD_CONTACT_PAGE_STATE__")) {
+        return {
+          supported: true,
+          alreadySatisfied: false,
+          alreadyContacted: false,
+          conversationOpen: false,
+          messageSent: false,
+          status: "not-contacted",
+        };
+      }
+      throw new Error("recheck must not click a new contact trigger");
+    },
+    delay: async () => {},
+  });
+
+  const [action] = await runner.triggerContactActions(9222, [
+    { id: "boss-ai", site: "boss", url: target.url, targetId: target.id },
+  ], {
+    enabled: true,
+    delayMs: 0,
+    verifyDelayMs: 0,
+    retryDelayMs: 0,
+    maxAttempts: 1,
+    betweenRecordsDelayMs: 0,
+    followup: {
+      enabled: true,
+      requireExistingConversationOnly: true,
+      messages: [],
+      messagesNormalized: [],
+      stepDelayMs: 0,
+      verifyDelayMs: 0,
+    },
+  });
+
+  assert.equal(action.attempted, false);
+  assert.equal(action.clicked, false);
+  assert.equal(action.verified, false);
+  assert.equal(action.followup.status, "existing-conversation-not-found-before-recheck");
+  assert.equal(evaluated.length, 1);
 });

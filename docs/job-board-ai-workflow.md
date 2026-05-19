@@ -274,6 +274,44 @@ with "双方回复后可用", the receipt records `status: "platform-unavailable
 platform precondition from a selector failure. Use
 `--allow-followup-without-exchange` only for an intentional degraded run.
 
+### Delayed Follow-up Rechecks
+
+BOSS/Liepin exchange actions can be blocked until both sides have replied. The
+harness does not hard-wait on the chat page and does not infer readiness from
+unread badges or generic message counters. When a contact follow-up records a
+platform-unavailable resume or WeChat action, `open` and `open-batches` upsert a
+durable recheck entry in `.tmp/job_board_harness/followup_recheck_queue.json` by
+default.
+
+Each queue entry stores the site, canonical job id or URL, title/company/recruiter
+identity, pending exchange actions, attempt count, next check time, last receipt,
+last platform reason, UI evidence, and hashed message-plan metadata. It does not
+store cookies, passwords, exported browser state, raw WeChat IDs, or the full
+personal follow-up message body.
+
+Use dry-run first to inspect which delayed items are due:
+
+```powershell
+.\tools\job-board.cmd followup-recheck --dry-run --max 10 --out .tmp\job_board_harness\followup_recheck_dry_run.json
+```
+
+Run the real recheck in small batches:
+
+```powershell
+.\tools\job-board.cmd followup-recheck --max 10 --followup-recheck-after-hours 12 --out .tmp\job_board_harness\followup_recheck_live.json
+```
+
+`followup-recheck` opens the specific queued job/conversation again, verifies the
+same expected conversation identity, and retries only the missing resume/WeChat
+exchange actions by default. It will not start a brand-new contact from a queued
+detail page; if the existing conversation cannot be found or opened, the item
+remains pending with recorded evidence for later review. It does not resend the
+long follow-up message unless a future explicit option is added for that
+behavior. If the current page still shows the platform prerequisite, the item
+remains pending with a later `nextCheckAt`; if the exchange actions are clicked
+or already satisfied and the conversation verifies, the queue item becomes
+`completed`; if the conversation is now clearly rejected, it becomes `rejected`.
+
 `open` runs the login-state gate by default. For detail-opening batches it uses
 the first selected detail URL for the auth probe, so BOSS does not leave
 `/web/geek/jobs` as the final visible work page. If auth is not ready it opens

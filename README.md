@@ -63,6 +63,12 @@ exchange-button search, default-priority resume selection, modal confirmation
 clicks, BOSS "both sides must reply first" disabled states, message send
 verification, and a hashed message plan so later reviews can reproduce the
 decision path without committing the personal message body.
+If BOSS/Liepin blocks resume or WeChat exchange until the recruiter replies,
+the harness queues the exact delayed conversation in
+`.tmp/job_board_harness/followup_recheck_queue.json`; use
+`followup-recheck --dry-run` to inspect due items and `followup-recheck --max 10`
+to retry only the missing exchange actions later without starting a brand-new
+contact.
 Use `collect --include-recommendation-pages` or the default `run --profile ...`
 flow to include BOSS/Liepin recommendation list pages as an additional screened
 source. BOSS overview topic tabs such as the horizontal role recommendations

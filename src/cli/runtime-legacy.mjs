@@ -73,6 +73,13 @@ import {
   normalizeContactFollowupMessages,
 } from "../sites/contact-followup.mjs";
 import {
+  DEFAULT_FOLLOWUP_RECHECK_RETRY_AFTER_HOURS,
+  applyFollowupRecheckResults,
+  recordFollowupRecheckQueueFromContactActions,
+  selectDueFollowupRechecks,
+  summarizeFollowupRecheckQueue,
+} from "../sites/contact-followup-recheck.mjs";
+import {
   alreadyOpened as alreadyOpenedCore,
   appendOpenedState as appendOpenedStateCore,
   dedupeOpenRecords,
@@ -2979,6 +2986,37 @@ export function createContactActionRunner({
         if (betweenRecordsDelayMs > 0) await delayImpl(betweenRecordsDelayMs);
         continue;
       }
+      if (followupOptions.enabled && followupOptions.requireExistingConversationOnly) {
+        const followupResult = {
+          enabled: true,
+          attempted: false,
+          verified: false,
+          status: "existing-conversation-not-found-before-recheck",
+          error: "existing-conversation-not-found-before-followup-recheck",
+          messagePlan: contactFollowupMessagePlan(followupOptions),
+        };
+        results.push({
+          ...record,
+          supported: true,
+          attempted: false,
+          clicked: false,
+          verified: false,
+          messageSent: false,
+          conversationOpen: false,
+          alreadyContacted: Boolean(preflight?.alreadyContacted),
+          noContactNeeded: false,
+          preflight,
+          verification: preflight,
+          attempts: [],
+          attemptCount: 0,
+          followup: followupResult,
+          close: { closed: false, reason: "existing-conversation-not-found-before-recheck", targetId: record.targetId },
+          error: followupResult.error,
+          targetId: record.targetId,
+        });
+        if (betweenRecordsDelayMs > 0) await delayImpl(betweenRecordsDelayMs);
+        continue;
+      }
       const attemptState = await attemptContactTrigger(port, record, target, {
         attemptsLimit,
         retryDelayMs,
@@ -3049,6 +3087,47 @@ function loadQueue(file) {
 function saveQueue(file, queue) {
   writeJson(file, refreshQueueSummary(queue));
   return file;
+}
+
+function resolveFollowupRecheckQueueFile(args) {
+  return path.resolve(ROOT, option(args, "followup-recheck-queue", path.join(STATE_DIR, "followup_recheck_queue.json")));
+}
+
+function loadFollowupRecheckQueue(file) {
+  return fs.existsSync(file) ? readJson(file) : null;
+}
+
+function updateFollowupRecheckQueueFromActions(contactActions, args, {
+  receiptPath = "",
+  now = new Date().toISOString(),
+} = {}) {
+  if (boolOption(args, "no-followup-recheck-queue")) {
+    return { enabled: false, written: false, entries: [], summary: null, queue_file: null };
+  }
+  const queueFile = resolveFollowupRecheckQueueFile(args);
+  const current = loadFollowupRecheckQueue(queueFile);
+  const result = recordFollowupRecheckQueueFromContactActions(current, contactActions, {
+    receiptPath,
+    now,
+    retryAfterHours: intOption(args, "followup-recheck-after-hours", DEFAULT_FOLLOWUP_RECHECK_RETRY_AFTER_HOURS),
+  });
+  if (!result.entries.length) {
+    return {
+      enabled: true,
+      written: false,
+      entries: [],
+      summary: summarizeFollowupRecheckQueue(current, { now }),
+      queue_file: queueFile,
+    };
+  }
+  writeJson(queueFile, result.queue);
+  return {
+    enabled: true,
+    written: true,
+    entries: result.entries,
+    summary: result.summary,
+    queue_file: queueFile,
+  };
 }
 
 function batchPolicyFromArgs(args) {
@@ -3149,6 +3228,23 @@ function contactFollowupOptionsFromArgs(args, { enabled = false } = {}) {
       messages: mainMessages,
       maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
     }),
+  };
+}
+
+function contactFollowupRecheckOptionsFromArgs(args) {
+  return {
+    enabled: true,
+    resumeNote: "",
+    messages: [],
+    messagesNormalized: [],
+    exchangeResume: !boolOption(args, "no-followup-resume-action"),
+    exchangeWechat: !boolOption(args, "no-followup-wechat-action"),
+    requireExchangeActions: !boolOption(args, "allow-followup-without-exchange"),
+    requireExistingConversationOnly: true,
+    stepDelayMs: intOption(args, "followup-step-delay-ms", DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS),
+    verifyDelayMs: intOption(args, "followup-verify-delay-ms", DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS),
+    maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
+    messageSources: { recheck: true },
   };
 }
 
@@ -3342,6 +3438,11 @@ async function cmdOpenBatches(args) {
   }
 
   const output = path.resolve(ROOT, option(args, "out", path.join(STATE_DIR, `opened_batches_${timestamp()}.json`)));
+  const followupRecheckQueue = updateFollowupRecheckQueueFromActions(
+    receipts.flatMap((receipt) => receipt.contactActions || []),
+    args,
+    { receiptPath: output },
+  );
   writeJson(output, {
     meta: {
       createdAt: new Date().toISOString(),
@@ -3354,6 +3455,7 @@ async function cmdOpenBatches(args) {
     queue: refreshQueueSummary(queue),
     receipts,
     rejected,
+    followupRecheckQueue,
   });
   console.log(JSON.stringify({
     output,
@@ -3368,6 +3470,10 @@ async function cmdOpenBatches(args) {
     followup_message_sent_count: followupMessageSentCount,
     followup_exchange_clicked_count: followupExchangeClickedCount,
     followup_exchange_unavailable_count: followupExchangeUnavailableCount,
+    followup_recheck_queue_file: followupRecheckQueue.queue_file,
+    followup_recheck_pending_count: followupRecheckQueue.summary?.pending || 0,
+    followup_recheck_due_count: followupRecheckQueue.summary?.due || 0,
+    followup_recheck_added_count: followupRecheckQueue.entries?.length || 0,
     contact_failure_reason: fatalContactFailureReason || null,
     rejected_count: rejected.length,
     remaining_count: queue.remaining,
@@ -3451,6 +3557,7 @@ async function cmdOpen(args) {
     }
   }
   const output = path.resolve(ROOT, option(args, "out", path.join(STATE_DIR, `opened_${timestamp()}.json`)));
+  const followupRecheckQueue = updateFollowupRecheckQueueFromActions(contactActions, args, { receiptPath: output });
   writeJson(output, {
     meta: { createdAt: new Date().toISOString(), cdpPort: hit.port, browser: result.browser, delayMs },
     opened,
@@ -3459,6 +3566,7 @@ async function cmdOpen(args) {
     contactActions,
     contactFailures,
     cleanup,
+    followupRecheckQueue,
   });
   const contactTriggeredCount = contactActions.filter((item) => item.clicked).length;
   const contactVerifiedCount = contactActions.filter((item) => item.verified).length;
@@ -3477,6 +3585,10 @@ async function cmdOpen(args) {
     followup_message_sent_count: followupStats.messageSent,
     followup_exchange_clicked_count: followupStats.exchangeClicked,
     followup_exchange_unavailable_count: followupStats.exchangeUnavailable,
+    followup_recheck_queue_file: followupRecheckQueue.queue_file,
+    followup_recheck_pending_count: followupRecheckQueue.summary?.pending || 0,
+    followup_recheck_due_count: followupRecheckQueue.summary?.due || 0,
+    followup_recheck_added_count: followupRecheckQueue.entries?.length || 0,
     contact_failure_reason: contactFailureText || null,
     rejected_count: rejected.length,
     access_limited_count: accessLimited.length,
@@ -3490,6 +3602,132 @@ async function cmdOpen(args) {
   } else if (contactFailures.length && !boolOption(args, "allow-contact-failures")) {
     process.exitCode = 4;
   }
+}
+
+async function cmdFollowupRecheck(args) {
+  ensureStateDir();
+  const queueFile = path.resolve(ROOT, option(args, "queue", option(args, "followup-recheck-queue", path.join(STATE_DIR, "followup_recheck_queue.json"))));
+  if (!fs.existsSync(queueFile)) throw new Error(`Follow-up recheck queue file not found: ${queueFile}`);
+  const queue = loadFollowupRecheckQueue(queueFile);
+  const now = new Date().toISOString();
+  const max = intOption(args, "max", 10);
+  const includeNotDue = boolOption(args, "include-not-due") || boolOption(args, "all");
+  const due = selectDueFollowupRechecks(queue, { now, max, includeNotDue });
+  const summary = summarizeFollowupRecheckQueue(queue, { now });
+  const next = due.map((item) => ({
+    key: item.key,
+    site: item.site,
+    id: item.id || item.canonical_id || null,
+    url: item.url,
+    title: item.title || "",
+    recruiter: item.recruiter || "",
+    pendingActions: item.pendingActions || [],
+    attemptCount: Number(item.attemptCount || 0),
+    nextCheckAt: item.nextCheckAt || null,
+    reason: item.reason || null,
+  }));
+  if (boolOption(args, "dry-run")) {
+    const output = option(args, "out") ? path.resolve(ROOT, option(args, "out")) : null;
+    const payload = {
+      dry_run: true,
+      output,
+      queue_file: queueFile,
+      ...summary,
+      pending_count: summary.pending,
+      due_count: summary.due,
+      next_count: next.length,
+      next,
+    };
+    if (output) writeJson(output, payload);
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+  if (!due.length) {
+    console.log(JSON.stringify({
+      status: "no-due-followup-rechecks",
+      queue_file: queueFile,
+      ...summary,
+      pending_count: summary.pending,
+      due_count: summary.due,
+      next_count: 0,
+    }, null, 2));
+    return;
+  }
+
+  const hit = await ensureCdp(args, { start: boolOption(args, "start") });
+  if (!hit) throw new Error("CDP is not available. Run start-browser or launch-hint and log in first.");
+  const records = due.map((item) => ({
+    site: item.site,
+    id: item.id || item.canonical_id,
+    canonical_id: item.canonical_id || item.id,
+    url: item.url,
+    title: item.title,
+    company: item.company,
+    recruiter: item.recruiter,
+    __followupRecheckKey: item.key,
+    __directUserUrl: true,
+  }));
+  if (!boolOption(args, "skip-auth-check")) {
+    await assertAuthReady(hit.port, sitesFromRecords(records, option(args, "site", "both")), {
+      openLogin: !boolOption(args, "no-open-login"),
+      fresh: !boolOption(args, "reuse-auth-page"),
+      probeRecordsBySite: firstAuthProbeRecordsBySite(records),
+    });
+  }
+  const delayMs = Math.max(0, Number(option(args, "delay-ms", String(DEFAULT_OPEN_DELAY_MS))) || 0);
+  const openedResult = await openBackgroundTabs(hit.port, records, delayMs);
+  const opened = openedResult.opened;
+  const accessLimited = await inspectOpenedAccessLimits(hit.port, opened);
+  const contactActions = await triggerContactActions(hit.port, opened, {
+    enabled: true,
+    delayMs: intOption(args, "contact-delay-ms", DEFAULT_CONTACT_DELAY_MS),
+    verifyDelayMs: intOption(args, "contact-verify-delay-ms", DEFAULT_CONTACT_VERIFY_DELAY_MS),
+    retryDelayMs: intOption(args, "contact-retry-delay-ms", DEFAULT_CONTACT_RETRY_DELAY_MS),
+    maxAttempts: intOption(args, "contact-max-attempts", DEFAULT_CONTACT_MAX_ATTEMPTS),
+    betweenRecordsDelayMs: intOption(args, "contact-between-records-ms", DEFAULT_CONTACT_BETWEEN_RECORDS_MS),
+    closeResolvedPages: !boolOption(args, "keep-contact-pages"),
+    followup: contactFollowupRecheckOptionsFromArgs(args),
+  });
+  const output = path.resolve(ROOT, option(args, "out", path.join(STATE_DIR, `followup_recheck_${timestamp()}.json`)));
+  const contactActionsWithReceipt = contactActions.map((action) => ({ ...action, receiptPath: output }));
+  const nextQueue = applyFollowupRecheckResults(queue, contactActionsWithReceipt, {
+    now,
+    retryAfterHours: intOption(args, "followup-recheck-after-hours", DEFAULT_FOLLOWUP_RECHECK_RETRY_AFTER_HOURS),
+  });
+  writeJson(queueFile, nextQueue);
+  const nextSummary = summarizeFollowupRecheckQueue(nextQueue, { now: new Date().toISOString() });
+  let cleanup = { closed: [], failed: [], skipped: boolOption(args, "keep-search-pages") };
+  if (!cleanup.skipped) {
+    cleanup = await closeGenericJobBoardPages(hit.port).catch((error) => ({ closed: [], failed: [{ error: error.message }] }));
+  }
+  writeJson(output, {
+    meta: { createdAt: now, cdpPort: hit.port, queueFile, max, includeNotDue },
+    before: summary,
+    after: nextSummary,
+    selected: next,
+    opened,
+    accessLimited,
+    contactActions: contactActionsWithReceipt,
+    cleanup,
+  });
+  const followupStats = contactFollowupStats(contactActions);
+  console.log(JSON.stringify({
+    output,
+    queue_file: queueFile,
+    checked_count: contactActions.length,
+    contact_verified_count: contactActions.filter((item) => item.verified).length,
+    followup_attempted_count: followupStats.attempted,
+    followup_verified_count: followupStats.verified,
+    followup_exchange_clicked_count: followupStats.exchangeClicked,
+    followup_exchange_unavailable_count: followupStats.exchangeUnavailable,
+    pending_count: nextSummary.pending,
+    completed_count: nextSummary.completed,
+    rejected_count: nextSummary.rejected,
+    access_limited_count: accessLimited.length,
+    cdp_port: hit.port,
+    browser: openedResult.browser,
+  }, null, 2));
+  if (accessLimited.length) process.exitCode = 3;
 }
 
 function cmdOpened() {
@@ -3909,6 +4147,7 @@ Commands:
   feedback                Record user feedback and append regression metrics
   open --input <json>     Open selected detail URLs as background tabs via CDP
   open-batches            Queue selected detail URLs and open resumable batches
+  followup-recheck        Reopen delayed follow-up exchange queue and retry resume/WeChat actions
   test-fixture            Run fixture collect -> rank -> review -> queue without browser
   opened                  Show local dedup state counts
   cleanup-pages           Close BOSS/Liepin/51job search/list tabs from the CDP browser
@@ -3961,6 +4200,10 @@ Common options:
   --followup-step-delay-ms 900 Wait between exchange, confirm, and send actions
   --followup-verify-delay-ms 1800 Wait after each send before transcript verification
   --followup-message-max-chars 900 Split long message text into safer chat-sized chunks
+  --followup-recheck-queue <file> Queue blocked resume/WeChat exchange actions for later recheck
+  --followup-recheck-after-hours 12 Delay before blocked exchange actions are due again
+  --no-followup-recheck-queue Do not persist platform-blocked follow-up actions from open/open-batches
+  --include-not-due       For followup-recheck: include pending entries before nextCheckAt
   --resume                For open-batches: continue the saved queue
   --draft                 For profile init: write draft instead of durable config
   --reason "..."          For profile freeze/feedback history
@@ -4025,6 +4268,9 @@ export async function main(argv = process.argv.slice(2)) {
       break;
     case "open-batches":
       await cmdOpenBatches(args);
+      break;
+    case "followup-recheck":
+      await cmdFollowupRecheck(args);
       break;
     case "test-fixture":
       cmdTestFixture(args);

@@ -188,6 +188,69 @@ test("open dry-run reports no new jobs when every record is previously opened", 
   assert.equal(parsed.rejected[0].skipReason, "already-opened");
 });
 
+test("followup-recheck dry-run reports due pending queue entries", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_followup_recheck_"));
+  const queue = path.join(stateDir, "followup_recheck_queue.json");
+  const receipt = path.join(stateDir, "followup_recheck_dry_run.json");
+  fs.writeFileSync(
+    queue,
+    `${JSON.stringify(
+      {
+        schema: "job-board-followup-recheck/v1",
+        createdAt: "2026-05-19T00:00:00.000Z",
+        updatedAt: "2026-05-19T00:00:00.000Z",
+        items: [
+          {
+            key: "boss:due",
+            site: "boss",
+            id: "due",
+            canonical_id: "due",
+            url: "https://www.zhipin.com/job_detail/due.html",
+            title: "Software Engineer LLM",
+            recruiter: "Ms Liu",
+            pendingActions: ["resume", "wechat"],
+            status: "pending",
+            nextCheckAt: "2026-05-18T00:00:00.000Z",
+          },
+          {
+            key: "boss:done",
+            site: "boss",
+            id: "done",
+            url: "https://www.zhipin.com/job_detail/done.html",
+            pendingActions: ["resume"],
+            status: "completed",
+            nextCheckAt: "2026-05-18T00:00:00.000Z",
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const output = execFileSync(process.execPath, [
+    HARNESS,
+    "followup-recheck",
+    "--queue",
+    queue,
+    "--dry-run",
+    "--max",
+    "5",
+    "--out",
+    receipt,
+  ], { cwd: ROOT, encoding: "utf8" });
+
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.dry_run, true);
+  assert.equal(parsed.pending_count, 1);
+  assert.equal(parsed.next_count, 1);
+  assert.deepEqual(parsed.next.map((item) => item.key), ["boss:due"]);
+  const written = JSON.parse(fs.readFileSync(receipt, "utf8"));
+  assert.equal(written.dry_run, true);
+  assert.deepEqual(written.next.map((item) => item.key), ["boss:due"]);
+});
+
 test("help exposes search/list cleanup controls", () => {
   const help = execFileSync(process.execPath, [HARNESS, "help"], {
     cwd: ROOT,
@@ -198,4 +261,5 @@ test("help exposes search/list cleanup controls", () => {
   assert.match(help, /--keep-search-pages/);
   assert.match(help, /--trigger-contact/);
   assert.match(help, /--keep-contact-pages/);
+  assert.match(help, /followup-recheck/);
 });

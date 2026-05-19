@@ -634,7 +634,7 @@ export function contactFollowupExpression(site, {
           type,
           clicked: false,
           alreadySatisfied: false,
-          satisfied: true,
+          satisfied: false,
           unavailable: true,
           status: "platform-unavailable",
           reason: "platform-requires-mutual-reply",
