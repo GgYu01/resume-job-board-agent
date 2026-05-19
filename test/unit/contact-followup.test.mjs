@@ -668,15 +668,32 @@ test("contact follow-up ignores already-satisfied BOSS text from the left conver
     className: "chat-user",
     text: "\u5bf9\u65b9\u5df2\u540c\u610f\uff0c\u60a8\u7684\u9644\u4ef6\u7b80\u5386\u5df2\u53d1\u9001\u7ed9\u5bf9\u65b9 \u5b59\u5973\u58eb\u7684\u5fae\u4fe1\u53f7\uff1awx_fixture_123",
   });
-  const resume = new FakeElement({ tag: "button", text: "\u53d1\u7b80\u5386", className: "toolbar-btn action-resume" });
-  const wechat = new FakeElement({ tag: "button", text: "\u6362\u5fae\u4fe1", className: "toolbar-btn action-wechat btn-weixin" });
+  const transcript = new FakeElement({ className: "message-content", text: "\u4f60\u597d\uff0c\u6211\u60f3\u5e94\u8058\u8d35\u516c\u53f8\u7684AI Agent\u5de5\u7a0b\u5e08" });
+  const resume = new FakeElement({
+    tag: "button",
+    text: "\u53d1\u7b80\u5386",
+    className: "toolbar-btn action-resume",
+    onClick: () => {
+      transcript.innerText = `${transcript.innerText} \u9644\u4ef6\u7b80\u5386\u5df2\u53d1\u9001`;
+      transcript.textContent = transcript.innerText;
+    },
+  });
+  const wechat = new FakeElement({
+    tag: "button",
+    text: "\u6362\u5fae\u4fe1",
+    className: "toolbar-btn action-wechat btn-weixin",
+    onClick: () => {
+      transcript.innerText = `${transcript.innerText} \u5df2\u53d1\u8d77\u4ea4\u6362\u5fae\u4fe1`;
+      transcript.textContent = transcript.innerText;
+    },
+  });
   const textarea = new FakeElement({
     tag: "textarea",
     className: "chat-input",
     attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" },
   });
   const active = new FakeElement({ className: "chat-conversation" }).append(
-    new FakeElement({ className: "message-content", text: "\u4f60\u597d\uff0c\u6211\u60f3\u5e94\u8058\u8d35\u516c\u53f8\u7684AI Agent\u5de5\u7a0b\u5e08" }),
+    transcript,
     new FakeElement({ className: "chat-controls" }).append(resume, wechat),
     new FakeElement({ className: "chat-input-wrap" }).append(textarea),
   );
@@ -733,6 +750,109 @@ test("contact follow-up prefers BOSS toolbar exchange buttons over chat transcri
   assert.equal(transcript.clicked, 0);
 });
 
+test("contact follow-up confirms BOSS WeChat sentence popover", async () => {
+  const transcript = new FakeElement({ className: "message-content", text: "\u5386\u53f2\u6c9f\u901a" });
+  const body = new FakeElement({ tag: "body" });
+  const wechat = new FakeElement({
+    tag: "button",
+    text: "\u6362\u5fae\u4fe1",
+    className: "btn-weixin toolbar-btn tooltip tooltip-top",
+    onClick: () => {
+      const popover = new FakeElement({ className: "sentence-popover panel-wechat" });
+      const confirm = new FakeElement({
+        tag: "span",
+        text: "\u786e\u5b9a",
+        className: "btn-v2 btn-sure-v2",
+        onClick: () => {
+          popover.remove();
+          transcript.innerText = `${transcript.innerText} \u5df2\u53d1\u8d77\u4ea4\u6362\u5fae\u4fe1`;
+          transcript.textContent = transcript.innerText;
+        },
+      });
+      popover.append(
+        new FakeElement({ className: "title", text: "\u786e\u5b9a\u4e0e\u5bf9\u65b9\u4ea4\u6362\u5fae\u4fe1\u5417\uff1f" }),
+        new FakeElement({ className: "btns" }).append(
+          new FakeElement({ tag: "span", text: "\u53d6\u6d88", className: "btn-v2 btn-outline-v2" }),
+          confirm,
+        ),
+      );
+      body.append(popover);
+    },
+  });
+  const textarea = new FakeElement({
+    tag: "textarea",
+    className: "chat-input",
+    attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" },
+  });
+  const active = new FakeElement({ className: "chat-conversation" }).append(
+    new FakeElement({ className: "message-content", text: "\u4f60\u597d\uff0c\u6211\u60f3\u5e94\u8058\u8d35\u516c\u53f8\u7684AI Agent\u5de5\u7a0b\u5e08" }),
+    new FakeElement({ className: "chat-controls" }).append(wechat),
+    new FakeElement({ className: "chat-input-wrap" }).append(textarea),
+  );
+  body.append(active);
+
+  const result = await runBrowserExpression(contactFollowupExpression("boss", {
+    exchangeResume: false,
+    messagesNormalized: [],
+    stepDelayMs: 0,
+    verifyDelayMs: 0,
+  }), body, {
+    url: "https://www.zhipin.com/web/geek/chat",
+    title: "BOSS\u76f4\u8058",
+  });
+
+  const action = result.actions.find((item) => item.type === "wechat");
+  assert.equal(result.status, "followup-sent");
+  assert.equal(result.clickedExchangeCount, 1);
+  assert.equal(action.status, "clicked");
+  assert.equal(action.satisfied, true);
+  assert.equal(action.confirmations[0].text, "\u786e\u5b9a");
+  assert.equal(wechat.clicked, 1);
+  assert.match(transcript.innerText, /\u5df2\u53d1\u8d77\u4ea4\u6362\u5fae\u4fe1/);
+});
+
+test("contact follow-up clicks BOSS WeChat toolbar shell instead of text overlay", async () => {
+  const transcript = new FakeElement({ className: "message-content", text: "\u5386\u53f2\u6c9f\u901a" });
+  const overlay = new FakeElement({
+    text: "\u6362\u5fae\u4fe1",
+    className: "toolbar-btn-content",
+  });
+  const shell = new FakeElement({
+    text: "\u6362\u5fae\u4fe1",
+    className: "btn-weixin toolbar-btn tooltip tooltip-top",
+    onClick: () => {
+      transcript.innerText = `${transcript.innerText} \u5df2\u53d1\u8d77\u4ea4\u6362\u5fae\u4fe1`;
+      transcript.textContent = transcript.innerText;
+    },
+  });
+  const textarea = new FakeElement({
+    tag: "textarea",
+    className: "chat-input",
+    attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" },
+  });
+  const active = new FakeElement({ className: "chat-conversation" }).append(
+    transcript,
+    new FakeElement({ className: "chat-controls" }).append(overlay, shell),
+    new FakeElement({ className: "chat-input-wrap" }).append(textarea),
+  );
+  const body = new FakeElement({ tag: "body" }).append(active);
+
+  const result = await runBrowserExpression(contactFollowupExpression("boss", {
+    exchangeResume: false,
+    messagesNormalized: [],
+    stepDelayMs: 0,
+    verifyDelayMs: 0,
+  }), body, {
+    url: "https://www.zhipin.com/web/geek/chat",
+    title: "BOSS\u76f4\u8058",
+  });
+
+  assert.equal(result.status, "followup-sent");
+  assert.equal(result.clickedExchangeCount, 1);
+  assert.equal(overlay.clicked, 0);
+  assert.equal(shell.clicked, 1);
+});
+
 test("contact follow-up records BOSS exchange buttons blocked until both sides reply", async () => {
   const resumeShell = new FakeElement({ className: "toolbar-btn tooltip tooltip-top unable", text: "\u53d1\u7b80\u5386 \u6c42\u7b80\u5386\uff1a\u53cc\u65b9\u56de\u590d\u540e\u53ef\u7528" }).append(
     new FakeElement({ tag: "span", text: "\u53d1\u7b80\u5386", className: "toolbar-btn-content" }),
@@ -768,6 +888,49 @@ test("contact follow-up records BOSS exchange buttons blocked until both sides r
   assert.ok(result.actions.every((action) => action.satisfied === false));
   assert.ok(result.actions.every((action) => action.status === "platform-unavailable"));
   assert.ok(result.trace.some((step) => step.step === "exchange.action.unavailable" && step.type === "wechat"));
+});
+
+test("contact follow-up audit-only reports available BOSS exchange actions without clicking", async () => {
+  const resume = new FakeElement({
+    tag: "button",
+    className: "toolbar-btn btn-resume",
+    text: "\u53d1\u7b80\u5386",
+  });
+  const wechat = new FakeElement({
+    tag: "button",
+    className: "btn-weixin toolbar-btn",
+    text: "\u6362\u5fae\u4fe1",
+  });
+  const textarea = new FakeElement({
+    tag: "textarea",
+    className: "chat-input",
+    attrs: { placeholder: "\u8f93\u5165\u6d88\u606f" },
+  });
+  const active = new FakeElement({ className: "chat-conversation" }).append(
+    new FakeElement({ className: "message-content", text: "\u4f60\u597d\uff0c\u6211\u60f3\u5e94\u8058\u8d35\u516c\u53f8\u7684AI Agent\u5de5\u7a0b\u5e08" }),
+    new FakeElement({ className: "chat-controls" }).append(resume, wechat),
+    new FakeElement({ className: "chat-input-wrap" }).append(textarea),
+  );
+  const body = new FakeElement({ tag: "body" }).append(active);
+
+  const result = await runBrowserExpression(contactFollowupExpression("boss", {
+    messagesNormalized: [],
+    auditOnly: true,
+    stepDelayMs: 0,
+    verifyDelayMs: 0,
+  }), body, {
+    url: "https://www.zhipin.com/web/geek/chat",
+    title: "BOSS\u76f4\u8058",
+  });
+
+  assert.equal(result.status, "followup-audit-read-only");
+  assert.equal(result.verified, false);
+  assert.equal(result.clickedExchangeCount, 0);
+  assert.equal(result.availableExchangeCount, 2);
+  assert.equal(result.sentMessageCount, 0);
+  assert.equal(resume.clicked, 0);
+  assert.equal(wechat.clicked, 0);
+  assert.deepEqual(result.actions.map((item) => item.status), ["available", "available"]);
 });
 
 test("contact follow-up message normalization keeps resume note and splits long content", () => {

@@ -36,6 +36,7 @@ const legacyCommands = new Set([
   "open",
   "open-batches",
   "followup-recheck",
+  "conversation-audit",
   "test-fixture",
   "opened",
   "cleanup-pages",

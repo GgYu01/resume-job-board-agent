@@ -80,6 +80,12 @@ import {
   summarizeFollowupRecheckQueue,
 } from "../sites/contact-followup-recheck.mjs";
 import {
+  conversationListExpression,
+  conversationSelectExpression,
+  sanitizeConversationAuditResult,
+  summarizeConversationAuditResults,
+} from "../sites/conversation-audit.mjs";
+import {
   alreadyOpened as alreadyOpenedCore,
   appendOpenedState as appendOpenedStateCore,
   dedupeOpenRecords,
@@ -3248,6 +3254,23 @@ function contactFollowupRecheckOptionsFromArgs(args) {
   };
 }
 
+function contactFollowupAuditOptionsFromArgs(args, { execute = false } = {}) {
+  return {
+    enabled: true,
+    resumeNote: "",
+    messages: [],
+    messagesNormalized: [],
+    exchangeResume: !boolOption(args, "no-followup-resume-action"),
+    exchangeWechat: !boolOption(args, "no-followup-wechat-action"),
+    requireExchangeActions: true,
+    auditOnly: !execute,
+    stepDelayMs: intOption(args, "followup-step-delay-ms", DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS),
+    verifyDelayMs: intOption(args, "followup-verify-delay-ms", DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS),
+    maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
+    messageSources: { conversationAudit: true },
+  };
+}
+
 function contactFollowupStats(actions) {
   const followups = (actions || []).map((action) => action.followup).filter((item) => item?.enabled);
   return {
@@ -3730,6 +3753,171 @@ async function cmdFollowupRecheck(args) {
   if (accessLimited.length) process.exitCode = 3;
 }
 
+function defaultConversationAuditUrls(site) {
+  const urls = [];
+  for (const item of expandSites(site)) {
+    if (item === "boss") urls.push({ site: "boss", url: "https://www.zhipin.com/web/geek/chat" });
+    if (item === "liepin") urls.push({ site: "liepin", url: "https://c.liepin.com/" });
+  }
+  return urls;
+}
+
+function isConversationAuditUrl(url) {
+  const text = String(url || "");
+  return /zhipin\.com\/web\/geek\/(?:chat|message)|zhipin\.com\/.*chat|c\.liepin\.com|liepin\.com\/(?:message|im|chat)|liepin\.com\/.*\/im/i.test(text);
+}
+
+function conversationAuditInputRecords(data) {
+  if (Array.isArray(data)) return data;
+  for (const key of ["conversations", "items", "results"]) {
+    if (Array.isArray(data?.[key])) return data[key];
+  }
+  return [];
+}
+
+async function cmdConversationAudit(args) {
+  ensureStateDir();
+  const createdAt = new Date().toISOString();
+  const output = path.resolve(ROOT, option(args, "out", path.join(STATE_DIR, `conversation_audit_${timestamp()}.json`)));
+  const requestedExecute = boolOption(args, "execute");
+  const dryRun = boolOption(args, "dry-run") || Boolean(option(args, "input", null));
+  const execute = requestedExecute && !dryRun;
+  const input = option(args, "input", null);
+
+  if (input) {
+    const data = readJson(input);
+    const conversations = sanitizeConversationAuditResult(conversationAuditInputRecords(data));
+    const summary = summarizeConversationAuditResults(conversations);
+    const payload = {
+      meta: {
+        createdAt,
+        source: "input",
+        input: path.resolve(ROOT, input),
+        dryRun: true,
+        requestedExecute,
+        execute: false,
+      },
+      conversations,
+      summary,
+    };
+    writeJson(output, payload);
+    console.log(JSON.stringify({
+      output,
+      dry_run: true,
+      execute: false,
+      ...summary,
+    }, null, 2));
+    return;
+  }
+
+  const site = String(option(args, "site", "both")).toLowerCase();
+  const max = intOption(args, "max", 20);
+  const selectDelayMs = intOption(args, "conversation-select-delay-ms", 1200);
+  const openDelayMs = intOption(args, "delay-ms", 1200);
+  const seedUrls = values(args, "url").map((url) => String(url || "").trim()).filter(Boolean);
+  const records = seedUrls.length
+    ? seedUrls.map((url) => ({ site: siteFromUrl(url) || site, url }))
+    : defaultConversationAuditUrls(site);
+  const rejected = records.filter((record) => !isConversationAuditUrl(record.url));
+  if (rejected.length) {
+    throw new Error(`conversation-audit accepts chat/message pages only. Rejected: ${rejected.map((item) => item.url).join(", ")}`);
+  }
+
+  const hit = await ensureCdp(args, { start: boolOption(args, "start") });
+  if (!hit) throw new Error("CDP is not available. Run start-browser or launch-hint and log in first.");
+  if (!boolOption(args, "skip-auth-check")) {
+    await assertAuthReady(hit.port, sitesFromRecords(records, site), {
+      openLogin: !boolOption(args, "no-open-login"),
+      fresh: !boolOption(args, "reuse-auth-page"),
+    });
+  }
+
+  const openedResult = await openBackgroundTabs(hit.port, records, openDelayMs);
+  await delay(selectDelayMs);
+  const targets = await listTargets(hit.port);
+  const targetById = new Map(targets.map((target) => [target.id, target]));
+  const pages = [];
+  const conversations = [];
+  const warnings = [];
+  const followupOptions = contactFollowupAuditOptionsFromArgs(args, { execute });
+
+  for (const opened of openedResult.opened) {
+    const target = targetById.get(opened.targetId);
+    if (!target?.webSocketDebuggerUrl) {
+      warnings.push(`conversation-audit target not found: ${opened.url}`);
+      continue;
+    }
+    try {
+      const listed = await evaluateTarget(target, conversationListExpression(opened.site, { max }));
+      pages.push({
+        site: opened.site,
+        url: listed.url || opened.url,
+        title: listed.title || target.title || "",
+        count: listed.candidates?.length || 0,
+        targetId: opened.targetId,
+      });
+      for (const candidate of listed.candidates || []) {
+        const selected = await evaluateTarget(target, conversationSelectExpression(opened.site, {
+          auditKey: candidate.auditKey,
+          index: candidate.index,
+        }));
+        if (selectDelayMs > 0) await delay(selectDelayMs);
+        const followup = selected.selected
+          ? await evaluateTarget(target, contactFollowupExpression(opened.site, followupOptions))
+          : {
+              enabled: true,
+              attempted: false,
+              verified: false,
+              status: "conversation-select-failed",
+              actions: [],
+              sentMessageCount: 0,
+            };
+        conversations.push(sanitizeConversationAuditResult({
+          site: opened.site,
+          page: { url: listed.url || opened.url, title: listed.title || target.title || "", targetId: opened.targetId },
+          candidate,
+          selection: selected,
+          followup,
+        }));
+      }
+    } catch (error) {
+      warnings.push(`Failed to audit ${opened.url}: ${error.message}`);
+    }
+  }
+
+  const summary = summarizeConversationAuditResults(conversations);
+  const payload = {
+    meta: {
+      createdAt,
+      source: `edge-cdp:${hit.port}`,
+      site,
+      max,
+      dryRun,
+      requestedExecute,
+      execute,
+      cdpPort: hit.port,
+      browser: openedResult.browser,
+      privacy: "Chat text samples and contact values are redacted where known before receipt persistence.",
+    },
+    pages,
+    warnings,
+    conversations,
+    summary,
+  };
+  writeJson(output, payload);
+  console.log(JSON.stringify({
+    output,
+    dry_run: dryRun,
+    requested_execute: requestedExecute,
+    execute,
+    page_count: pages.length,
+    warning_count: warnings.length,
+    cdp_port: hit.port,
+    browser: openedResult.browser,
+    ...summary,
+  }, null, 2));
+}
+
 function cmdOpened() {
   const state = loadOpenedState();
   console.log(
@@ -4148,6 +4336,7 @@ Commands:
   open --input <json>     Open selected detail URLs as background tabs via CDP
   open-batches            Queue selected detail URLs and open resumable batches
   followup-recheck        Reopen delayed follow-up exchange queue and retry resume/WeChat actions
+  conversation-audit      Scan existing chat conversations for resume/WeChat exchange readiness
   test-fixture            Run fixture collect -> rank -> review -> queue without browser
   opened                  Show local dedup state counts
   cleanup-pages           Close BOSS/Liepin/51job search/list tabs from the CDP browser
@@ -4204,6 +4393,8 @@ Common options:
   --followup-recheck-after-hours 12 Delay before blocked exchange actions are due again
   --no-followup-recheck-queue Do not persist platform-blocked follow-up actions from open/open-batches
   --include-not-due       For followup-recheck: include pending entries before nextCheckAt
+  --execute               For conversation-audit: click available resume/WeChat exchange actions; default is read-only
+  --conversation-select-delay-ms 1200 Wait after selecting a chat conversation before auditing controls
   --resume                For open-batches: continue the saved queue
   --draft                 For profile init: write draft instead of durable config
   --reason "..."          For profile freeze/feedback history
@@ -4271,6 +4462,9 @@ export async function main(argv = process.argv.slice(2)) {
       break;
     case "followup-recheck":
       await cmdFollowupRecheck(args);
+      break;
+    case "conversation-audit":
+      await cmdConversationAudit(args);
       break;
     case "test-fixture":
       cmdTestFixture(args);

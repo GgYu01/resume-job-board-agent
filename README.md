@@ -69,6 +69,11 @@ the harness queues the exact delayed conversation in
 `followup-recheck --dry-run` to inspect due items and `followup-recheck --max 10`
 to retry only the missing exchange actions later without starting a brand-new
 contact.
+Use `conversation-audit --site boss --max 20` as a broader safety-net scan over
+existing chat conversations. It is read-only by default and only reports whether
+resume/WeChat exchange controls are available, blocked, already satisfied, or
+missing. Add `--execute` only when you explicitly want it to click available
+resume/WeChat exchange controls; it still sends no long template message.
 Use `collect --include-recommendation-pages` or the default `run --profile ...`
 flow to include BOSS/Liepin recommendation list pages as an additional screened
 source. BOSS overview topic tabs such as the horizontal role recommendations

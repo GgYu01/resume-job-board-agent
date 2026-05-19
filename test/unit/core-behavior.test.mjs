@@ -77,3 +77,9 @@ test("redactSensitiveEvidence removes contact values by default", () => {
   assert(!redacted.includes("hr@example.com"));
   assert(redacted.includes("[phone-redacted]"));
 });
+
+test("redactSensitiveEvidence removes named WeChat ids from chat evidence", () => {
+  const redacted = redactSensitiveEvidence("\u5b59\u4e66\u6167\u7684\u5fae\u4fe1\u53f7\uff1aiii2rrrzjhbgdrrk iii2rrrzjhbgdrrk \u5b59\u4e66\u6167\u7684\u5fae\u4fe1\u53f7");
+  assert(!redacted.includes("iii2rrrzjhbgdrrk"));
+  assert(redacted.includes("[contact-redacted]"));
+});

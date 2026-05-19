@@ -251,6 +251,50 @@ test("followup-recheck dry-run reports due pending queue entries", () => {
   assert.deepEqual(written.next.map((item) => item.key), ["boss:due"]);
 });
 
+test("conversation-audit input dry-run writes summarized receipt", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_conversation_audit_"));
+  const input = path.join(stateDir, "conversation_audit_input.json");
+  const receipt = path.join(stateDir, "conversation_audit_output.json");
+  fs.writeFileSync(
+    input,
+    `${JSON.stringify({
+      conversations: [
+        {
+          site: "boss",
+          candidate: { textSample: "刘女士 wxid_abcd1234" },
+          followup: {
+            sentMessageCount: 0,
+            actions: [
+              { type: "resume", status: "available", available: true },
+              { type: "wechat", status: "platform-unavailable", unavailable: true },
+            ],
+          },
+        },
+      ],
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const output = execFileSync(process.execPath, [
+    HARNESS,
+    "conversation-audit",
+    "--input",
+    input,
+    "--dry-run",
+    "--out",
+    receipt,
+  ], { cwd: ROOT, encoding: "utf8" });
+
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.dry_run, true);
+  assert.equal(parsed.conversation_count, 1);
+  assert.equal(parsed.available_resume_count, 1);
+  assert.equal(parsed.platform_unavailable_count, 1);
+  assert.equal(fs.existsSync(receipt), true);
+  const written = JSON.parse(fs.readFileSync(receipt, "utf8"));
+  assert.equal(JSON.stringify(written).includes("wxid_abcd1234"), false);
+});
+
 test("help exposes search/list cleanup controls", () => {
   const help = execFileSync(process.execPath, [HARNESS, "help"], {
     cwd: ROOT,
@@ -262,4 +306,6 @@ test("help exposes search/list cleanup controls", () => {
   assert.match(help, /--trigger-contact/);
   assert.match(help, /--keep-contact-pages/);
   assert.match(help, /followup-recheck/);
+  assert.match(help, /conversation-audit/);
+  assert.match(help, /--execute/);
 });

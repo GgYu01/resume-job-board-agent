@@ -67,6 +67,7 @@ export function contactFollowupExpression(site, {
   exchangeResume = true,
   exchangeWechat = true,
   requireExchangeActions = true,
+  auditOnly = false,
   stepDelayMs = DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS,
   verifyDelayMs = DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS,
 } = {}) {
@@ -78,6 +79,7 @@ export function contactFollowupExpression(site, {
     exchangeResume: exchangeResume !== false,
     exchangeWechat: exchangeWechat !== false,
     requireExchangeActions: requireExchangeActions !== false,
+    auditOnly: Boolean(auditOnly),
     stepDelayMs: Math.max(0, Number(stepDelayMs) || 0),
     verifyDelayMs: Math.max(0, Number(verifyDelayMs) || 0),
   });
@@ -147,6 +149,36 @@ export function contactFollowupExpression(site, {
       /true/i.test(String(el?.getAttribute?.("aria-disabled") || "")) ||
       /disabled|is-disabled|unable/i.test(classFor(el))
     );
+    const clickElement = (target) => {
+      if (!target) return { clicked: false };
+      target.scrollIntoView?.({ block: "center", inline: "center" });
+      const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+      const width = Math.max(1, Number(rect.width || 1));
+      const height = Math.max(1, Number(rect.height || 1));
+      const clientX = Number(rect.left || 0) + Math.min(width - 2, Math.max(2, width / 2));
+      const clientY = Number(rect.top || 0) + Math.min(height - 2, Math.max(2, height / 2));
+      if (target.dispatchEvent && typeof MouseEvent === "function") {
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+          target.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            view: window,
+          }));
+        }
+      }
+      target.click?.();
+      return {
+        clicked: true,
+        rect: {
+          left: Math.round(Number(rect.left || 0)),
+          top: Math.round(Number(rect.top || 0)),
+          width: Math.round(width),
+          height: Math.round(height),
+        },
+      };
+    };
     const documentList = () => {
       const docs = [document];
       for (const frame of Array.from(window.frames || [])) {
@@ -245,9 +277,17 @@ export function contactFollowupExpression(site, {
       return roots;
     };
     const activeRoot = () => chatRoots()[0] || document.body;
-    const modalSelector = "[role='dialog'],.dialog-wrap,.dialog-container,.dialog-layer,.dialog-content,.ant-modal,.ant-im-modal,.ant-im-modal-wrap,.ant-im-modal-content,.ant-popover,.ant-im-popover,.popover";
+    const modalSelector = "[role='dialog'],.dialog-wrap,.dialog-container,.dialog-layer,.dialog-content,.ant-modal,.ant-im-modal,.ant-im-modal-wrap,.ant-im-modal-content,.ant-popover,.ant-im-popover,.popover,.sentence-popover,.panel-wechat,.panel-resume,.panel-phone,.secure-exchange";
+    const isRelevantModal = (el) => {
+      if (!isVisible(el)) return false;
+      const cls = classFor(el);
+      const text = rootText(el);
+      if (/right-bottom-fixed|side-bar|download|app|qr-code/i.test(cls) || /下载App|随时沟通/.test(text)) return false;
+      if (/dialog|modal|ant-modal|ant-im-modal|sentence-popover|panel-wechat|panel-resume|panel-phone|secure-exchange/i.test(cls)) return true;
+      return /确定|确认|取消|同意|拒绝|微信|微信号|简历|交换|投递/.test(text);
+    };
     const visibleDialogText = () => norm(allElements(modalSelector)
-      .filter((el) => isVisible(el))
+      .filter((el) => isRelevantModal(el))
       .map((el) => rootText(el))
       .join(" "));
     const actionAlreadySatisfied = (type) => {
@@ -259,7 +299,7 @@ export function contactFollowupExpression(site, {
       return false;
     };
     const modalVisible = () => allElements(modalSelector)
-      .some((el) => isVisible(el));
+      .some((el) => isRelevantModal(el));
     const selectedLike = (el) => Boolean(
       el?.checked ||
       /true/i.test(String(el?.getAttribute?.("aria-checked") || "")) ||
@@ -373,8 +413,7 @@ export function contactFollowupExpression(site, {
           candidates: found.candidates.slice(0, 5).map(resumeSelectionSummary),
         };
       }
-      selected.target.scrollIntoView?.({ block: "center", inline: "center" });
-      selected.target.click();
+      clickElement(selected.target);
       await wait(Math.min(payload.stepDelayMs, 700));
       const after = findResumeSelectionCandidate();
       const selectedAfter = after.candidates.find((item) => item.selected && compact(item.text) === compact(selected.text)) ||
@@ -436,7 +475,7 @@ export function contactFollowupExpression(site, {
       if (!hasVisibleModal) {
         return { selected: null, candidates: [], modalVisible: false };
       }
-      const candidates = allElements("button,a,[role='button'],.ant-im-btn,.ant-btn,.btn,.button")
+      const candidates = allElements("button,a,[role='button'],.ant-im-btn,.ant-btn,.btn,.button,.btn-v2,.btn-sure-v2,.btn-outline-v2")
         .filter((el) => isVisible(el) && !isDisabled(clickableFor(el)))
         .map((el, index) => {
           const target = clickableFor(el);
@@ -481,7 +520,7 @@ export function contactFollowupExpression(site, {
           modalVisible: found.modalVisible,
         };
       }
-      selected.target.click();
+      clickElement(selected.target);
       await wait(payload.stepDelayMs);
       const clicked = {
         clicked: true,
@@ -571,10 +610,13 @@ export function contactFollowupExpression(site, {
           if (type === "resume" && /^(?:\u53d1\u7b80\u5386|\u53d1\u9001\u9644\u4ef6\u7b80\u5386|\u53d1\u9001\u7b80\u5386|\u6295\u9012\u7b80\u5386|\u9644\u4ef6\u7b80\u5386)$/u.test(targetCompact)) score += 140;
           if (type === "wechat" && /^(?:\u6362\u5fae\u4fe1|\u4ea4\u6362\u5fae\u4fe1|\u7d22\u8981\u5fae\u4fe1|\u5fae\u4fe1)$/u.test(targetCompact)) score += 140;
           if (isCompactAction && includesAny(targetText, hints)) score += 50;
-          if (/toolbar-btn|btn-weixin|btn-resume|action-resume|action-wechat/i.test(classes)) score += 90;
+          if (/\btoolbar-btn\b|btn-weixin|btn-resume|action-resume|action-wechat/i.test(classes)) score += 90;
           if (includesAny(bundle, hints)) score += 25;
+          if (/toolbar-btn-content/i.test(classes) && !/btn-weixin|btn-resume|action-resume|action-wechat/i.test(classes)) score -= 100;
           if (type === "resume" && /action-resume|resume/i.test(classes)) score += 80;
           if (type === "wechat" && /action-wechat|wechat/i.test(classes)) score += 80;
+          if (type === "wechat" && /btn-weixin/i.test(classes)) score += 60;
+          if (type === "resume" && /btn-resume|action-resume/i.test(classes)) score += 60;
           if (/^(BUTTON|A)$/.test(String(target.tagName || "").toUpperCase()) || /button|action-item|im-ui-action-button/i.test(classes)) score += 15;
           if (/message-content|chat-record|chat-message|chat-im|chat-editor|message-controls|chat-controls/i.test(classes) && targetCompact.length > 18) score -= 100;
           if (targetCompact.length > 80) score -= 80;
@@ -647,8 +689,26 @@ export function contactFollowupExpression(site, {
         addTrace("exchange.action.not_found", { type, hints });
         return { type, clicked: false, alreadySatisfied: false, satisfied: false, status: "action-not-found", hints };
       }
-      selected.target.scrollIntoView?.({ block: "center", inline: "center" });
-      selected.target.click();
+      if (payload.auditOnly) {
+        addTrace("exchange.action.available", {
+          type,
+          text: clipped(selected.text || selected.targetText, 80),
+          targetText: clipped(selected.targetText, 80),
+          targetClass: clipped(selected.classes, 140),
+        });
+        return {
+          type,
+          clicked: false,
+          alreadySatisfied: false,
+          satisfied: false,
+          available: true,
+          status: "available",
+          text: selected.text || selected.targetText,
+          targetText: selected.targetText,
+          targetClass: selected.classes.slice(0, 200),
+        };
+      }
+      clickElement(selected.target);
       addTrace("exchange.action.clicked", {
         type,
         text: clipped(selected.text || selected.targetText, 80),
@@ -659,11 +719,15 @@ export function contactFollowupExpression(site, {
       const resumeSelection = type === "resume" ? await ensureResumeSelection() : null;
       const confirmationFlow = await drainConfirmations(type);
       const satisfiedBySignal = actionAlreadySatisfied(type);
-      const satisfied = Boolean(satisfiedBySignal || confirmationFlow.completed);
+      const completedByConfirmation = confirmationFlow.confirmations.length > 0 && confirmationFlow.completed;
+      const completedWithoutConfirmation = payload.site !== "boss" && confirmationFlow.completed;
+      const satisfied = Boolean(satisfiedBySignal || completedByConfirmation || completedWithoutConfirmation);
       addTrace("exchange.action.completed", {
         type,
         satisfied,
         satisfiedBySignal,
+        completedByConfirmation,
+        completedWithoutConfirmation,
         confirmationCount: confirmationFlow.confirmations.length,
         terminalReason: confirmationFlow.terminal?.reason || null,
         modalVisible: Boolean(confirmationFlow.terminal?.modalVisible),
@@ -737,7 +801,7 @@ export function contactFollowupExpression(site, {
       await wait(Math.min(payload.stepDelayMs, 500));
       const sendButton = findSendButton(root);
       if (sendButton) {
-        sendButton.target.click();
+        clickElement(sendButton.target);
         addTrace("message.send_button.clicked", {
           index,
           text: clipped(sendButton.text, 80),
@@ -802,10 +866,12 @@ export function contactFollowupExpression(site, {
       const required = actions.filter((action) => payload.requireExchangeActions && ["resume", "wechat"].includes(action.type));
       const requiredOk = required.every((action) => action.satisfied || action.alreadySatisfied);
       const messagesOk = sentMessages.every((item) => item.verified);
-      const verified = Boolean(supported && hasInput && (!payload.requireExchangeActions || requiredOk) && messagesOk);
+      const verified = Boolean(!payload.auditOnly && supported && hasInput && (!payload.requireExchangeActions || requiredOk) && messagesOk);
       const failedActions = actions.filter((action) => !(action.satisfied || action.alreadySatisfied));
       const failedMessages = sentMessages.filter((item) => !item.verified);
-      const status = verified
+      const status = payload.auditOnly
+        ? "followup-audit-read-only"
+        : verified
         ? "followup-sent"
         : !hasInput
           ? "chat-input-not-found"
@@ -827,6 +893,7 @@ export function contactFollowupExpression(site, {
         sentMessageCount: sentMessages.filter((item) => item.sent).length,
         visibleMessageCount: sentMessages.filter((item) => item.verified).length,
         clickedExchangeCount: actions.filter((item) => item.clicked).length,
+        availableExchangeCount: actions.filter((item) => item.available).length,
         alreadySatisfiedExchangeCount: actions.filter((item) => item.alreadySatisfied).length,
         unavailableExchangeCount: actions.filter((item) => item.unavailable).length,
         failedActions,

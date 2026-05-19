@@ -19,6 +19,8 @@ When the user explicitly requests post-contact messaging, `--send-contact-follow
 
 Delayed follow-up recheck queues may store job ids, URLs, title/company/recruiter identity, pending exchange-action names, attempts, timestamps, UI evidence, receipt paths, and hashed message-plan metadata. They must not store cookies, passwords, exported browser state, raw WeChat IDs, phone numbers, email addresses, or full personal follow-up message bodies. `followup-recheck` retries missing resume/WeChat exchange actions from existing queued conversations by default, must not start a brand-new contact, and must not resend the long personal message unless the user explicitly requests that future mode.
 
+`conversation-audit` may scan existing chat pages to detect whether resume/WeChat exchange controls are available, blocked, already satisfied, clicked, or missing. Its default mode is read-only. `--execute` is required before clicking exchange controls, and even execute mode must pass an empty message list unless the user separately requests a future explicit message-send mode. Conversation audit receipts may store redacted chat samples, UI action status, timestamps, and aggregate counters, but must not store raw contact values, cookies, browser profile data, or full personal message bodies.
+
 Allowed:
 
 - Summarize.
@@ -27,6 +29,7 @@ Allowed:
 - Trigger BOSS/Liepin default contact only through explicit `--trigger-contact`.
 - Send user-supplied follow-up messages only through explicit `--send-contact-followup` after contact verification.
 - Reopen delayed follow-up exchange queues to retry missing resume/WeChat actions.
+- Read-only scan existing conversations for resume/WeChat exchange readiness; click exchange controls only with explicit `--execute`.
 
 Not allowed:
 

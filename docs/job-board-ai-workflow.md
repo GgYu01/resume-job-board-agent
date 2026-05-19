@@ -312,6 +312,35 @@ remains pending with a later `nextCheckAt`; if the exchange actions are clicked
 or already satisfied and the conversation verifies, the queue item becomes
 `completed`; if the conversation is now clearly rejected, it becomes `rejected`.
 
+### Conversation-wide Exchange Audit
+
+`followup-recheck` covers known queued blockers. To catch older conversations,
+manual chat activity, or missed queue entries, use `conversation-audit` on the
+existing chat pages:
+
+```powershell
+.\tools\job-board.cmd conversation-audit --site boss --max 20 --out .tmp\job_board_harness\conversation_audit_boss.json
+```
+
+The default mode is read-only. It opens the BOSS/Liepin chat page in the durable
+Edge Beta CDP profile, scans visible existing conversations, selects each
+conversation, and records whether the chat-page resume and WeChat exchange
+controls are `available`, `platform-unavailable`, `already-satisfied`, clicked,
+or missing. It does not trigger a new job contact and does not send the long
+in-service/base/location template message.
+
+Only add `--execute` after reviewing the read-only receipt:
+
+```powershell
+.\tools\job-board.cmd conversation-audit --site boss --max 5 --execute --out .tmp\job_board_harness\conversation_audit_boss_execute.json
+```
+
+Execution mode still passes an empty message list. It can click available
+resume/WeChat exchange controls in existing conversations, but it does not type
+or send custom chat text. Receipts include per-conversation selection evidence,
+exchange action status, modal/confirmation traces from the shared follow-up
+runner, aggregate counters, and redacted chat samples.
+
 `open` runs the login-state gate by default. For detail-opening batches it uses
 the first selected detail URL for the auth probe, so BOSS does not leave
 `/web/geek/jobs` as the final visible work page. If auth is not ready it opens
