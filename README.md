@@ -57,12 +57,12 @@ validated semantic review from `agent-review --review-output`; rule fallback
 records are refused unless `--allow-unaudited-contact` is passed intentionally.
 Post-contact custom messaging is a separate explicit action:
 `--send-contact-followup` must be used together with `--trigger-contact`, and
-the long personal message should come from an ignored local file via
-`--followup-message-file`. Follow-up receipts include a per-step trace for
+the long personal message defaults to `configs/contact-followup-message.md`
+unless overridden with `--followup-message-file`. Follow-up receipts include a per-step trace for
 exchange-button search, default-priority resume selection, modal confirmation
 clicks, BOSS "both sides must reply first" disabled states, message send
 verification, and a hashed message plan so later reviews can reproduce the
-decision path without committing the personal message body.
+decision path without storing token/cookie state or raw contact values.
 If BOSS/Liepin blocks resume or WeChat exchange until the recruiter replies,
 the harness queues the exact delayed conversation in
 `.tmp/job_board_harness/followup_recheck_queue.json`; use
@@ -73,7 +73,9 @@ Use `conversation-audit --site boss --max 20` as a broader safety-net scan over
 existing chat conversations. It is read-only by default and only reports whether
 resume/WeChat exchange controls are available, blocked, already satisfied, or
 missing. Add `--execute` only when you explicitly want it to click available
-resume/WeChat exchange controls; it still sends no long template message.
+resume/WeChat exchange controls. Add `--send-template` together with `--execute`
+when you want the audit to send the configured follow-up template after the
+exchange checks.
 Use `collect --include-recommendation-pages` or the default `run --profile ...`
 flow to include BOSS/Liepin recommendation list pages as an additional screened
 source. BOSS overview topic tabs such as the horizontal role recommendations

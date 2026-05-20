@@ -110,6 +110,7 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const STATE_DIR = process.env.JOB_BOARD_HARNESS_STATE_DIR
   ? path.resolve(ROOT, process.env.JOB_BOARD_HARNESS_STATE_DIR)
   : path.join(ROOT, ".tmp", "job_board_harness");
+const DEFAULT_CONTACT_FOLLOWUP_MESSAGE_FILE = path.join(ROOT, "configs", "contact-followup-message.md");
 const DEFAULT_PORTS = Array.from({ length: 9 }, (_, i) => 9222 + i);
 const DEFAULT_MAX_BATCH = 15;
 const DEFAULT_OPEN_DELAY_MS = 1500;
@@ -3180,6 +3181,38 @@ function readContactFollowupMessageFile(file) {
   return fs.readFileSync(resolved, "utf8").trim();
 }
 
+function relativeToRoot(file) {
+  if (!file) return null;
+  return path.relative(ROOT, path.isAbsolute(file) ? file : path.resolve(ROOT, file));
+}
+
+function contactFollowupTemplateRequested(args) {
+  return boolOption(args, "send-template")
+    || boolOption(args, "send-contact-followup")
+    || boolOption(args, "contact-followup");
+}
+
+function contactFollowupMessageInputsFromArgs(args, { allowDefault = false } = {}) {
+  const explicitMessageFile = option(args, "followup-message-file", "");
+  const useDefaultFile = !explicitMessageFile && allowDefault && fs.existsSync(DEFAULT_CONTACT_FOLLOWUP_MESSAGE_FILE);
+  const messageFile = explicitMessageFile || (useDefaultFile ? DEFAULT_CONTACT_FOLLOWUP_MESSAGE_FILE : "");
+  const fileMessage = readContactFollowupMessageFile(messageFile);
+  const inlineMessages = values(args, "followup-message");
+  const messages = [...inlineMessages, fileMessage].filter(Boolean);
+  return {
+    messages,
+    inlineMessages,
+    fileMessage,
+    messageFile,
+    messageSources: {
+      inlineCount: inlineMessages.length,
+      file: relativeToRoot(messageFile),
+      fileChars: fileMessage.length,
+      defaultFile: useDefaultFile,
+    },
+  };
+}
+
 function contactFollowupMessagePlan(followupOptions = {}) {
   const messages = Array.isArray(followupOptions.messagesNormalized)
     ? followupOptions.messagesNormalized.filter(Boolean)
@@ -3205,12 +3238,11 @@ function contactFollowupMessagePlan(followupOptions = {}) {
 
 function contactFollowupOptionsFromArgs(args, { enabled = false } = {}) {
   if (!enabled) return { enabled: false };
-  const messageFile = option(args, "followup-message-file", "");
-  const fileMessage = readContactFollowupMessageFile(messageFile);
-  const inlineMessages = values(args, "followup-message");
-  const mainMessages = [...inlineMessages, fileMessage].filter(Boolean);
+  const noteOnly = boolOption(args, "followup-note-only");
+  const messageInputs = contactFollowupMessageInputsFromArgs(args, { allowDefault: !noteOnly });
+  const mainMessages = messageInputs.messages;
   if (!mainMessages.length && !boolOption(args, "followup-note-only")) {
-    throw new Error("--send-contact-followup requires --followup-message-file or --followup-message. Use --followup-note-only only for an explicit note-only run.");
+    throw new Error("--send-contact-followup requires --followup-message-file, --followup-message, or configs/contact-followup-message.md. Use --followup-note-only only for an explicit note-only run.");
   }
   return {
     enabled: true,
@@ -3222,13 +3254,7 @@ function contactFollowupOptionsFromArgs(args, { enabled = false } = {}) {
     stepDelayMs: intOption(args, "followup-step-delay-ms", DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS),
     verifyDelayMs: intOption(args, "followup-verify-delay-ms", DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS),
     maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
-    messageSources: {
-      inlineCount: inlineMessages.length,
-      file: messageFile
-        ? path.relative(ROOT, path.isAbsolute(messageFile) ? messageFile : path.resolve(ROOT, messageFile))
-        : null,
-      fileChars: fileMessage.length,
-    },
+    messageSources: messageInputs.messageSources,
     messagesNormalized: normalizeContactFollowupMessages({
       resumeNote: option(args, "followup-resume-note", DEFAULT_CONTACT_FOLLOWUP_RESUME_NOTE),
       messages: mainMessages,
@@ -3254,20 +3280,49 @@ function contactFollowupRecheckOptionsFromArgs(args) {
   };
 }
 
-function contactFollowupAuditOptionsFromArgs(args, { execute = false } = {}) {
+function contactFollowupAuditOptionsFromArgs(args, { execute = false, sendTemplate = false } = {}) {
+  const noteOnly = boolOption(args, "followup-note-only");
+  const messageInputs = sendTemplate
+    ? contactFollowupMessageInputsFromArgs(args, { allowDefault: !noteOnly })
+    : {
+        messages: [],
+        messageSources: {
+          inlineCount: 0,
+          file: null,
+          fileChars: 0,
+          defaultFile: false,
+        },
+      };
+  if (sendTemplate && !messageInputs.messages.length && !noteOnly) {
+    throw new Error("conversation-audit --send-template requires --execute and a follow-up message from --followup-message-file, --followup-message, or configs/contact-followup-message.md.");
+  }
+  const resumeNote = sendTemplate
+    ? option(args, "followup-resume-note", DEFAULT_CONTACT_FOLLOWUP_RESUME_NOTE)
+    : "";
+  const maxChars = intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS);
   return {
     enabled: true,
-    resumeNote: "",
-    messages: [],
-    messagesNormalized: [],
+    resumeNote,
+    messages: messageInputs.messages,
+    messagesNormalized: sendTemplate
+      ? normalizeContactFollowupMessages({
+          resumeNote,
+          messages: messageInputs.messages,
+          maxChars,
+        })
+      : [],
     exchangeResume: !boolOption(args, "no-followup-resume-action"),
     exchangeWechat: !boolOption(args, "no-followup-wechat-action"),
     requireExchangeActions: true,
     auditOnly: !execute,
     stepDelayMs: intOption(args, "followup-step-delay-ms", DEFAULT_CONTACT_FOLLOWUP_STEP_DELAY_MS),
     verifyDelayMs: intOption(args, "followup-verify-delay-ms", DEFAULT_CONTACT_FOLLOWUP_VERIFY_DELAY_MS),
-    maxChars: intOption(args, "followup-message-max-chars", DEFAULT_CONTACT_FOLLOWUP_MESSAGE_MAX_CHARS),
-    messageSources: { conversationAudit: true },
+    maxChars,
+    messageSources: {
+      conversationAudit: true,
+      templateEnabled: sendTemplate,
+      ...messageInputs.messageSources,
+    },
   };
 }
 
@@ -3782,6 +3837,8 @@ async function cmdConversationAudit(args) {
   const requestedExecute = boolOption(args, "execute");
   const dryRun = boolOption(args, "dry-run") || Boolean(option(args, "input", null));
   const execute = requestedExecute && !dryRun;
+  const requestedSendTemplate = contactFollowupTemplateRequested(args);
+  const sendTemplate = execute && requestedSendTemplate;
   const input = option(args, "input", null);
 
   if (input) {
@@ -3796,6 +3853,8 @@ async function cmdConversationAudit(args) {
         dryRun: true,
         requestedExecute,
         execute: false,
+        requestedSendTemplate,
+        sendTemplate: false,
       },
       conversations,
       summary,
@@ -3805,6 +3864,8 @@ async function cmdConversationAudit(args) {
       output,
       dry_run: true,
       execute: false,
+      requested_send_template: requestedSendTemplate,
+      send_template: false,
       ...summary,
     }, null, 2));
     return;
@@ -3839,7 +3900,7 @@ async function cmdConversationAudit(args) {
   const pages = [];
   const conversations = [];
   const warnings = [];
-  const followupOptions = contactFollowupAuditOptionsFromArgs(args, { execute });
+  const followupOptions = contactFollowupAuditOptionsFromArgs(args, { execute, sendTemplate });
 
   for (const opened of openedResult.opened) {
     const target = targetById.get(opened.targetId);
@@ -3895,6 +3956,9 @@ async function cmdConversationAudit(args) {
       dryRun,
       requestedExecute,
       execute,
+      requestedSendTemplate,
+      sendTemplate,
+      messagePlan: contactFollowupMessagePlan(followupOptions),
       cdpPort: hit.port,
       browser: openedResult.browser,
       privacy: "Chat text samples and contact values are redacted where known before receipt persistence.",
@@ -3910,6 +3974,8 @@ async function cmdConversationAudit(args) {
     dry_run: dryRun,
     requested_execute: requestedExecute,
     execute,
+    requested_send_template: requestedSendTemplate,
+    send_template: sendTemplate,
     page_count: pages.length,
     warning_count: warnings.length,
     cdp_port: hit.port,
@@ -4394,6 +4460,7 @@ Common options:
   --no-followup-recheck-queue Do not persist platform-blocked follow-up actions from open/open-batches
   --include-not-due       For followup-recheck: include pending entries before nextCheckAt
   --execute               For conversation-audit: click available resume/WeChat exchange actions; default is read-only
+  --send-template         For conversation-audit: with --execute, send the configured follow-up template after exchange checks
   --conversation-select-delay-ms 1200 Wait after selecting a chat conversation before auditing controls
   --resume                For open-batches: continue the saved queue
   --draft                 For profile init: write draft instead of durable config

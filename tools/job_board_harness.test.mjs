@@ -295,6 +295,47 @@ test("conversation-audit input dry-run writes summarized receipt", () => {
   assert.equal(JSON.stringify(written).includes("wxid_abcd1234"), false);
 });
 
+test("conversation-audit records requested template sending without executing input dry-run", () => {
+  const stateDir = fs.mkdtempSync(path.join(STATE_DIR, "test_conversation_audit_template_"));
+  const input = path.join(stateDir, "conversation_audit_input.json");
+  const receipt = path.join(stateDir, "conversation_audit_output.json");
+  fs.writeFileSync(
+    input,
+    `${JSON.stringify({
+      conversations: [
+        {
+          site: "boss",
+          candidate: { textSample: "resume and wechat controls visible" },
+          followup: {
+            sentMessageCount: 0,
+            actions: [{ type: "resume", status: "available", available: true }],
+          },
+        },
+      ],
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  const output = execFileSync(process.execPath, [
+    HARNESS,
+    "conversation-audit",
+    "--input",
+    input,
+    "--execute",
+    "--send-template",
+    "--out",
+    receipt,
+  ], { cwd: ROOT, encoding: "utf8" });
+
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.dry_run, true);
+  assert.equal(parsed.requested_send_template, true);
+  assert.equal(parsed.send_template, false);
+  const written = JSON.parse(fs.readFileSync(receipt, "utf8"));
+  assert.equal(written.meta.requestedSendTemplate, true);
+  assert.equal(written.meta.sendTemplate, false);
+});
+
 test("help exposes search/list cleanup controls", () => {
   const help = execFileSync(process.execPath, [HARNESS, "help"], {
     cwd: ROOT,
@@ -308,4 +349,5 @@ test("help exposes search/list cleanup controls", () => {
   assert.match(help, /followup-recheck/);
   assert.match(help, /conversation-audit/);
   assert.match(help, /--execute/);
+  assert.match(help, /--send-template/);
 });
